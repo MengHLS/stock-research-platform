@@ -1,0 +1,49 @@
+name: research-platform-dev
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: research
+      MYSQL_USER: research
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Supply a development database password in deploy/.env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Supply a root password in deploy/.env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: [CMD, mysqladmin, ping, -h, localhost, --silent]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    environment:
+      RP_ENVIRONMENT: development
+      RP_DATABASE_URL: mysql+pymysql://research:${MYSQL_PASSWORD}@db:3306/research
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:8000:8000
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    command: [python, -m, research_platform.modules.execution.worker]
+    environment:
+      RP_ENVIRONMENT: development
+      RP_DATABASE_URL: mysql+pymysql://research:${MYSQL_PASSWORD}@db:3306/research
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/frontend.Dockerfile
+    ports:
+      - 127.0.0.1:8080:8080
+    depends_on:
+      - api
+volumes:
+  mysql-data:
