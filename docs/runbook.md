@@ -101,6 +101,28 @@ Tushare 侧需自行确认账号权限：本机继承的旧 token 实测 `daily`
 
 排查步骤：`curl -4 --noproxy "*" https://push2his.eastmoney.com/...` 能通说明是代理 DNS 问题；把解析到的真实 IP 填进 `RP_UPSTREAM__HOST_ADDRESSES` 即可。也可临时退出代理直连验证。
 
+## 注册与登录
+
+自建认证，不依赖外部 OAuth。启用前必须在环境中设置签名密钥：
+
+```sh
+python -c "import secrets;print(secrets.token_urlsafe(48))"   # 生成后填入 RP_AUTH__SECRET
+```
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/v1/auth/register` | 注册并自动登录；`RP_AUTH__ALLOW_REGISTRATION=false` 时关闭 |
+| `POST /api/v1/auth/login` | 登录，写入 HttpOnly 会话 cookie |
+| `POST /api/v1/auth/logout` | 服务端撤销会话并清 cookie |
+| `GET /api/v1/auth/session` | 当前登录用户，未登录返回 `null`（不报错） |
+| `POST /api/v1/auth/password` | 修改密码，撤销该用户全部会话 |
+
+安全语义：密码用标准库 `scrypt`（参数随哈希编码，可后续升级）；数据库只存**会话令牌的 SHA-256**，泄露库也无法重放；登录失败与账号不存在返回同一错误码，不泄露邮箱是否已注册；连续失败达 `RP_AUTH__MAX_FAILED_LOGINS` 后锁定 `RP_AUTH__LOCKOUT_MINUTES` 分钟；cookie 为 `HttpOnly` + `SameSite=Lax`，生产强制 `Secure`（未设置则启动失败）。
+
+生产启动不再一律阻断：缺少 `RP_AUTH__SECRET` 或 `COOKIE_SECURE=false` 时明确报错退出。
+
+未实现：邮箱验证、密码重置、多因素、SSO、审计查询界面。旧项目的 OAuth（Manus 平台）未沿用，其 `users` 表只存 openId，无法迁移密码。
+
 ## 前端原型（Open Design）
 
 前端设计原型在 Open Design 桌面应用中维护，与本文档同目录的产品（早期 React 版本，现迁移到本仓库 Vue 3 + FastAPI）。Open Design 没有本地 HTTP/MCP 接口，**只能按数据目录只读访问**：

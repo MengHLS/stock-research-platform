@@ -22,6 +22,7 @@ from research_platform.core.middleware import RequestContextMiddleware
 from research_platform.core.upstream import UpstreamClient
 from research_platform.modules.catalog.router import router as catalog_router
 from research_platform.modules.execution.router import router as execution_router
+from research_platform.modules.identity.router import router as identity_router
 from research_platform.modules.market.router import router as market_router
 from research_platform.modules.market.service import MarketService
 
@@ -99,5 +100,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(catalog_router)
     app.include_router(execution_router)
+    app.include_router(identity_router)
     app.include_router(market_router)
     return app

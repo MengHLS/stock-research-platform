@@ -20,7 +20,7 @@ core 只含基础设施，不依赖 modules。业务模块的 router 可引用 i
 ## 已实现的纵向样板
 
 - catalog：Pydantic 契约→router→service→SQLAlchemy，创建和列表/详情按 actor.user_id 限定；无权 ID 与不存在 ID 都返回 404。
-- identity：只有不可伪造的接入位置，目前始终返回 AUTH_NOT_CONFIGURED。测试通过依赖注入切换 actor；没有测试登录 HTTP 接口。
+- identity：自建注册/登录。密码用标准库 scrypt 哈希；会话是不透明令牌，数据库只存令牌哈希，登出与改密立即撤销；连续失败按配置锁定。未配置 RP_AUTH__SECRET 时保持 AUTH_NOT_CONFIGURED，不假装已认证。
 - execution：job 持久化、用户范围查询、唯一幂等键、条件更新领取、60 秒租约、最多三次尝试、旧 token 不能提交终态。仅实现短诊断任务。
 - health：liveness 不依赖数据库；readiness 实际检查迁移后的任务表可读。
 
@@ -40,7 +40,7 @@ job 是基础设施工作项，不是研究 Run。当前诊断通过不代表策
 
 | 模块 | 职责 | 当前状态 |
 |---|---|---|
-| identity | 会话、用户、权限 | Interface 已留，认证待接入 |
+| identity | 会话、用户、权限 | 自建注册/登录已实现；密码重置邮件、SSO 待实现 |
 | catalog | 模式目录、定义与证据、关注 | 私人目录样板 |
 | execution | 作业调度与 Worker | 有界诊断样板 |
 | market / datasets | 行情与冻结数据集 | market 行情读取已实现；冻结数据集待实现 |

@@ -50,6 +50,21 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
     "AUTHENTICATION_REQUIRED": ErrorSpec(
         "AUTHENTICATION_REQUIRED", 401, ErrorCategory.AUTHENTICATION, "需要登录后访问。"
     ),
+    "INVALID_CREDENTIALS": ErrorSpec(
+        "INVALID_CREDENTIALS", 401, ErrorCategory.AUTHENTICATION, "邮箱或密码不正确。"
+    ),
+    "ACCOUNT_LOCKED": ErrorSpec(
+        "ACCOUNT_LOCKED", 429, ErrorCategory.RATE_LIMITED, "失败次数过多，账号已临时锁定。"
+    ),
+    "EMAIL_ALREADY_REGISTERED": ErrorSpec(
+        "EMAIL_ALREADY_REGISTERED", 409, ErrorCategory.CONFLICT, "该邮箱已注册。"
+    ),
+    "REGISTRATION_CLOSED": ErrorSpec(
+        "REGISTRATION_CLOSED", 403, ErrorCategory.AUTHORIZATION, "当前不允许自助注册。"
+    ),
+    "PASSWORD_TOO_WEAK": ErrorSpec(
+        "PASSWORD_TOO_WEAK", 422, ErrorCategory.VALIDATION, "密码强度不足。"
+    ),
     "PERMISSION_DENIED": ErrorSpec(
         "PERMISSION_DENIED", 403, ErrorCategory.AUTHORIZATION, "无权访问该资源。"
     ),
