@@ -171,13 +171,13 @@ dev 站点是内部验证环境：公网 IP + HTTP，不满足下文发布门槛
 
 | 组件 | 位置 | 说明 |
 |---|---|---|
-| GitHub Actions / ACR | GitHub、阿里云 | 门禁、构建并推送 SHA 标签镜像、SSH 部署、远端冒烟 |
+| GitHub Actions / GHCR | GitHub | 门禁、构建并推送 SHA 标签镜像、SSH 部署、远端冒烟 |
 | Docker Compose | ECS | `deploy/compose.server.yaml`；只有 web 发布端口（默认 8080） |
-| db | ECS | MySQL 8.4 容器，数据在卷 `mysql-data`，不公开 3306 |
+| db | ECS（既有） | 复用既有 MySQL 实例的 `research` 库与账号，不新建容器 |
 
-`deploy/compose.yaml`（本机）与 `compose.server.yaml`（服务器）互不覆盖，服务器不构建镜像。初始化：ECS 装 Docker 并开机自启，安全组只放行 8080 与 SSH；克隆仓库切到 dev；`cp deploy/env.server.example deploy/.env && chmod 600 deploy/.env` 后填 `ACR_*`、`MYSQL_*` 与 `RP_AUTH__SECRET`；首版 `bash deploy/deploy.sh --tag <SHA>`。首个账号在镜像内用 `python tools/project.py identity --identity-action user-create --email you@example.com --role admin` 创建。
+`deploy/compose.yaml`（本机）与 `compose.server.yaml`（服务器）互不覆盖，服务器不构建镜像。初始化：ECS 装 Docker 与 git，安全组只放行 8080 与 SSH；克隆仓库切到 dev；`cp deploy/env.server.example deploy/.env && chmod 600 deploy/.env` 后填 `IMAGE_PREFIX`、既有 MySQL 的 `MYSQL_*` 与 `RP_AUTH__SECRET`；首版 `bash deploy/deploy.sh --tag <SHA>`。首个账号在镜像内用 `python tools/project.py identity --identity-action user-create --email you@example.com --role admin` 创建。
 
-GitHub 配置：Secret `ACR_USERNAME`/`ACR_PASSWORD`/`ECS_HOST`/`ECS_USER`/`ECS_SSH_KEY`；Variable `ACR_REGISTRY`/`ACR_NAMESPACE`/`DEPLOY_PATH`/`WEB_PORT`。
+GitHub 配置：Secret `ECS_HOST`/`ECS_USER`/`ECS_SSH_KEY`；Variable `DEPLOY_PATH`/`WEB_PORT`。镜像仓库用仓库内置 `GITHUB_TOKEN`，无需额外凭据。
 
 发布：推送 `dev` 触发门禁 → 构建 → SSH 部署（拉取、迁移、启动、健康检查）→ 冒烟 `/health/live` 与 `/health/ready`，同分支串行。健康检查失败自动回到上一版，状态在 `deploy/.state/`；手工回滚 `bash deploy/deploy.sh --rollback`。迁移在启动前单独执行，容器不跑迁移。未验收：本地无 Docker，编排、脚本与流水线尚未实际运行；ECS 首次部署、ACR 拉取与回滚演练待执行，通过前不得宣称可用。
 

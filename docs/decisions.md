@@ -100,8 +100,8 @@ FastAPI 生成 schema，固定位置覆盖输出 TypeScript 声明。CI 比较�
 
 日期：2026-10-18。状态：编排与流水线已实现；ECS 实际部署与流水线运行待验收。
 
-`dev` 分支承担集成验证，`main` 保持可发布状态，两者走同一套 `tools/project.py check` 门禁。部署链为：推送 `dev` → 质量门禁 → 构建 `api`/`web` 两个不可变镜像（标签为提交 SHA）推送 ACR → SSH 到 ECS 执行 `deploy/deploy.sh` 拉取并滚动启动 → 远端冒烟。服务器不构建镜像，避免在低配机器上编译，并让回滚只依赖可追溯的镜像标签。
+`dev` 分支承担集成验证，`main` 保持可发布状态，两者走同一套 `tools/project.py check` 门禁。部署链为：推送 `dev` → 质量门禁 → 构建 `api`/`web` 两个不可变镜像（标签为提交 SHA）推送 GHCR → SSH 到 ECS 执行 `deploy/deploy.sh` 拉取并滚动启动 → 远端冒烟。服务器不构建镜像：一是低配机器上编译代价高，二是实测该 ECS 到 Docker Hub 完全不可达、GHCR 可访问，镜像只能在高可用的 Actions 端产出。
 
-数据库为同机 Compose 内的 MySQL 容器，只有 `web` 发布端口，`api`/`worker`/`db` 仅在容器网络内可达。迁移由部署脚本在应用启动前单独执行，容器启动与退出不跑迁移（与 D12 一致）；部署失败按上一版标签自动回滚，状态记录在入库忽略的 `deploy/.state/`。
+数据库复用 ECS 上既有的 MySQL 实例，只新建独立的 `research` 库与 `research` 账号，不启动第二个数据库容器：该机内存 1.6G 且既有 MySQL 已占约 35%，再起一个实例会直接触发 OOM 并加重 swap。应用只连自己的库，不读写既有其他库。只有 `web` 发布端口，`api`/`worker` 仅在既有 MySQL 所在的容器网络内可达。迁移由部署脚本在应用启动前单独执行，容器启动与退出不跑迁移（与 D12 一致）；部署失败按上一版标签自动回滚，状态记录在入库忽略的 `deploy/.state/`。
 
-代价与边界：dev 环境按公网 IP + HTTP 访问，因此只能以 `RP_ENVIRONMENT=development` 与 `RP_AUTH__COOKIE_SECURE=false` 运行——`production` 强制 `cookie_secure=true`，纯 HTTP 下浏览器不回传会话 cookie，登录必然失败。当前 dev 站点**不满足**运维“面向独立服务器的发布门槛”第 3 条（同域 HTTPS），属内部验证环境，不能当作生产发布；接入域名与证书后再切 `production`。镜像仓库凭据存放在服务器 `deploy/.env`（权限 600）而非 CI，CI 只传提交 SHA；该取舍以服务器访问控制为前提，后续可换成 OIDC 临时凭据。
+代价与边界：dev 环境按公网 IP + HTTP 访问，因此只能以 `RP_ENVIRONMENT=development` 与 `RP_AUTH__COOKIE_SECURE=false` 运行——`production` 强制 `cookie_secure=true`，纯 HTTP 下浏览器不回传会话 cookie，登录必然失败。当前 dev 站点**不满足**运维“面向独立服务器的发布门槛”第 3 条（同域 HTTPS），属内部验证环境，不能当作生产发布；接入域名与证书后再切 `production`。镜像仓库改用 GHCR 后不再需要长期保存的仓库密码：CI 用仓库内置 `GITHUB_TOKEN` 推送，部署时经 stdin 在服务器临时登录，凭据随作业失效。

@@ -1,6 +1,7 @@
 name: deploy-dev
 
-# dev 分支的自动部署：质量门禁 → 构建不可变镜像推送 ACR → SSH 到 ECS 拉取并滚动启动。
+# dev 分支的自动部署：质量门禁 → 构建不可变镜像推送 GHCR → SSH 到 ECS 拉取并滚动启动。
+# 该服务器实测 Docker Hub 不可达、GHCR 可访问，所以镜像在 Actions 构建，服务器只拉取。
 # 生产分支不经过本工作流；生产发布门槛见 docs/runbook.md。
 
 on:
@@ -15,10 +16,7 @@ concurrency:
 
 permissions:
   contents: read
-
-env:
-  REGISTRY: ${{ vars.ACR_REGISTRY }}
-  NAMESPACE: ${{ vars.ACR_NAMESPACE }}
+  packages: write
 
 jobs:
   quality:
@@ -49,26 +47,27 @@ jobs:
     needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      prefix: ${{ steps.image.outputs.prefix }}
     steps:
       - uses: actions/checkout@v4
-      - name: 校验仓库变量
-        run: |
-          test -n "$REGISTRY" || { echo "缺少仓库变量 ACR_REGISTRY"; exit 1; }
-          test -n "$NAMESPACE" || { echo "缺少仓库变量 ACR_NAMESPACE"; exit 1; }
+      - name: 计算镜像前缀（镜像名必须小写）
+        id: image
+        run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
-      - name: 登录 ACR
+      - name: 登录 GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: 构建并推送 API/Worker 镜像
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/backend.Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/research-platform-api:${{ github.sha }}
+          tags: ${{ steps.image.outputs.prefix }}/research-platform-api:${{ github.sha }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,scope=api,mode=max
       - name: 构建并推送 Web 镜像
@@ -77,7 +76,7 @@ jobs:
           context: .
           file: deploy/frontend.Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/research-platform-web:${{ github.sha }}
+          tags: ${{ steps.image.outputs.prefix }}/research-platform-web:${{ github.sha }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
@@ -105,13 +104,22 @@ jobs:
           ECS_USER: ${{ secrets.ECS_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           TAG: ${{ github.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           test -n "$ECS_USER" || { echo "缺少密钥 ECS_USER"; exit 1; }
           test -n "$DEPLOY_PATH" || { echo "缺少仓库变量 DEPLOY_PATH"; exit 1; }
-          # 服务器仓库只用于取部署脚本与编排，不构建；deploy/.env 与 .state 被 Git 忽略。
+          # 服务器仓库只用于取部署脚本与编排；deploy/.env 与 .state 被 Git 忽略。
+          # 环境变量经 stdin 传入，token 不出现在远端命令行。
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            "$ECS_USER@$ECS_HOST" \
-            "cd '$DEPLOY_PATH' && git fetch --prune origin dev && git reset --hard origin/dev && bash deploy/deploy.sh --tag '$TAG'"
+            "$ECS_USER@$ECS_HOST" 'bash -s' <<EOF
+          set -e
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          cd "$DEPLOY_PATH"
+          git fetch --prune origin dev
+          git reset --hard origin/dev
+          bash deploy/deploy.sh --tag "$TAG"
+          EOF
       - name: 冒烟检查
         env:
           ECS_HOST: ${{ secrets.ECS_HOST }}

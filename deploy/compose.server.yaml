@@ -1,23 +1,23 @@
-# 服务器端（阿里云 ECS）编排：只拉取 GitHub Actions 构建并推送到 ACR 的不可变镜像，
+# 服务器端（阿里云 ECS）编排：只拉取 GitHub Actions 构建并推送到 GHCR 的不可变镜像，
 # 服务器上不构建。本地开发请用 deploy/compose.yaml，两者互不影响。
 #
-# 边界：
-#   - 只有 web 发布端口；api/worker/db 仅在 compose 网络内可达，数据库管理口不公开。
-#   - 容器不执行迁移（见 docs/runbook.md“进程生命周期”），迁移由 deploy.sh 在启动前单独执行。
-#   - stop_grace_period 大于进程内部宽限期（API 15 秒、Worker 30 秒），留出缓冲。
-#   - 变量由 deploy/.env 提供，样例见 deploy/env.server.example。
+# 数据库复用 ECS 上已有的 MySQL 实例（容器名 mysql，网络 mysql_default）：
+#   - 本编排不创建数据库容器，避免与既有实例争抢 1.6G 内存
+#   - research 库与 research 账号独立，不读写既有其他库
+#   - 只有 web 发布端口；api/worker/web 都只在共享容器网络内，数据库不额外暴露
+#   - 容器不执行迁移（见 docs/runbook.md“进程生命周期”），迁移由 deploy.sh 在启动前单独执行
 
 name: research-platform-server
 
 x-api-env: &api-env
   RP_ENVIRONMENT: ${RP_ENVIRONMENT:-development}
   RP_LOG_LEVEL: ${RP_LOG_LEVEL:-INFO}
-  RP_DATABASE_MYSQL__HOST: db
+  RP_DATABASE_MYSQL__HOST: ${MYSQL_HOST:-mysql}
   RP_DATABASE_MYSQL__PORT: "3306"
   RP_DATABASE_MYSQL__DATABASE: ${MYSQL_DATABASE:-research}
   RP_DATABASE_MYSQL__USERNAME: ${MYSQL_USER:-research}
   RP_DATABASE_MYSQL__PASSWORD: ${MYSQL_PASSWORD:?deploy/.env 须提供 MYSQL_PASSWORD}
-  # 仅容器内网络，TLS 由 ECS 安全组与私网隔离承担；公网链路必须改成 verify。
+  # 仅容器网络内通信；既有实例未启用 TLS，公网链路不得沿用此设置。
   RP_DATABASE_MYSQL__TLS: disabled
   RP_AUTH__SECRET: ${RP_AUTH__SECRET:?deploy/.env 须提供 RP_AUTH__SECRET}
   # 纯 HTTP 访问时必须为 false，否则浏览器不回传会话 cookie，登录必然失败。
@@ -34,36 +34,11 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  db:
-    image: mysql:8.4
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-research}
-      MYSQL_USER: ${MYSQL_USER:-research}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?deploy/.env 须提供 MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?deploy/.env 须提供 MYSQL_ROOT_PASSWORD}
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_0900_ai_ci
-    volumes:
-      - mysql-data:/var/lib/mysql
-    healthcheck:
-      test: [CMD, mysqladmin, ping, -h, 127.0.0.1, --silent]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 40s
-    logging: *default-logging
-    networks: [internal]
-
   api:
     image: ${RP_IMAGE_API:?由 deploy/deploy.sh 注入镜像地址}
     restart: unless-stopped
     environment:
       <<: *api-env
-    depends_on:
-      db:
-        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -76,7 +51,7 @@ services:
       start_period: 25s
     stop_grace_period: 20s
     logging: *default-logging
-    networks: [internal]
+    networks: [shared]
 
   worker:
     image: ${RP_IMAGE_API:?由 deploy/deploy.sh 注入镜像地址}
@@ -84,12 +59,9 @@ services:
     command: [python, -m, research_platform.modules.execution.worker]
     environment:
       <<: *api-env
-    depends_on:
-      db:
-        condition: service_healthy
     stop_grace_period: 40s
     logging: *default-logging
-    networks: [internal]
+    networks: [shared]
 
   web:
     image: ${RP_IMAGE_WEB:?由 deploy/deploy.sh 注入镜像地址}
@@ -106,10 +78,9 @@ services:
       retries: 5
       start_period: 10s
     logging: *default-logging
-    networks: [internal]
-
-volumes:
-  mysql-data:
+    networks: [shared]
 
 networks:
-  internal:
+  shared:
+    external: true
+    name: ${MYSQL_NETWORK:-mysql_default}

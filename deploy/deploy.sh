@@ -10,7 +10,8 @@
 #   ./deploy.sh --help
 #
 # 前提：同目录存在 deploy/.env（由 env.server.example 复制并填写），
-# 且 docker、curl 可用；ECS 已登录过 ACR 或本脚本用 .env 内的凭据登录。
+# 且 docker、curl 可用；镜像仓库为 GHCR，CI 会通过 stdin 预先登录，
+# 手工部署则在 .env 里提供 GHCR_USERNAME / GHCR_PASSWORD 或事先 docker login。
 
 set -euo pipefail
 
@@ -20,7 +21,6 @@ cd "$SCRIPT_DIR"
 ENV_FILE=".env"
 COMPOSE_FILE="compose.server.yaml"
 STATE_DIR=".state"
-DB_WAIT_SECONDS="${DB_WAIT_SECONDS:-180}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-150}"
 
 TAG=""
@@ -84,8 +84,7 @@ require_var() {
   [[ -n "${!name:-}" ]] || die "deploy/.env 缺少 $name"
 }
 
-for var in ACR_REGISTRY ACR_NAMESPACE ACR_USERNAME ACR_PASSWORD \
-           MYSQL_PASSWORD MYSQL_ROOT_PASSWORD RP_AUTH__SECRET; do
+for var in IMAGE_PREFIX MYSQL_PASSWORD RP_AUTH__SECRET; do
   require_var "$var"
 done
 
@@ -105,18 +104,7 @@ ready_url="http://127.0.0.1:${web_port}/health/ready"
 
 image_for() {
   local name="$1" tag="$2"
-  echo "${ACR_REGISTRY}/${ACR_NAMESPACE}/${name}:${tag}"
-}
-
-wait_for_db() {
-  local deadline=$((SECONDS + DB_WAIT_SECONDS)) status
-  while (( SECONDS < deadline )); do
-    status="$(docker inspect -f '{{.State.Health.Status}}' "$(compose ps -q db)" 2>/dev/null || echo unknown)"
-    [[ "$status" == "healthy" ]] && return 0
-    sleep 3
-  done
-  echo "数据库在 ${DB_WAIT_SECONDS}s 内未就绪" >&2
-  return 1
+  echo "${IMAGE_PREFIX}/${name}:${tag}"
 }
 
 wait_for_ready() {
@@ -141,10 +129,6 @@ deploy_tag() {
   echo "==> 部署镜像标签: ${tag}"
   compose pull || return 1
 
-  echo "==> 启动数据库并等待就绪"
-  compose up -d db || return 1
-  wait_for_db || return 1
-
   # 迁移在应用启动前单独执行：容器启动/退出不跑迁移，避免并发与不可预期 DDL。
   echo "==> 执行数据库迁移"
   compose run --rm --no-deps api alembic -c backend/alembic.ini upgrade head || return 1
@@ -158,10 +142,15 @@ deploy_tag() {
 }
 
 login_registry() {
-  echo "==> 登录镜像仓库 ${ACR_REGISTRY}"
-  printf '%s' "$ACR_PASSWORD" | docker login "$ACR_REGISTRY" \
-    --username "$ACR_USERNAME" --password-stdin >/dev/null \
-    || die "镜像仓库登录失败，检查 ACR_USERNAME / ACR_PASSWORD"
+  if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_PASSWORD:-}" ]]; then
+    local registry="${IMAGE_PREFIX%%/*}"
+    echo "==> 登录镜像仓库 ${registry}"
+    printf '%s' "$GHCR_PASSWORD" | docker login "$registry" \
+      --username "$GHCR_USERNAME" --password-stdin >/dev/null \
+      || die "镜像仓库登录失败，检查 GHCR_USERNAME / GHCR_PASSWORD"
+  else
+    echo "==> 跳过镜像仓库登录（CI 已通过 stdin 登录，或镜像为公开包）"
+  fi
 }
 
 read_state() {
