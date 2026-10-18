@@ -29,13 +29,12 @@ API 与 Worker 只向 stdout/stderr 输出单行 JSON；`RP_LOG_LEVEL` 取 DEBUG
 本机使用已安装的 Obsidian，在既有「投资」vault 内新增专区，不另建或移动整个笔记库：
 
 - vault：`F:/Users/A/Desktop/Obsidian-workspace/stock/投资`
-- 首页：`研究工作台/研究入口.md`；主题：`研究工作台/主题/`
-- 模板：`研究工作台/模板/研究主题.md`；索引：`研究工作台/研究索引.base`
-- 使用既有启用的核心 Templates/Bases，无社区插件；新建 templates.json 指向专区模板目录，未覆盖旧模板配置。若运行中的客户端尚未加载，重启 Obsidian；也可直接复制模板到主题目录使用。
+- 首页：`研究工作台/研究入口.md`；主题：`研究工作台/主题/`；模板：`研究工作台/模板/研究主题.md`；索引：`研究工作台/研究索引.base`
+- 使用既有核心 Templates/Bases，无社区插件；新建 templates.json 指向专区模板目录，未覆盖旧模板配置。客户端未加载时重启 Obsidian，或直接复制模板到主题目录。
 
-Agent 开始研究前先读取首页并搜索主题目录；已有主题就更新主结论和简短证据记录，新问题才创建 research-topic 笔记。模板保留运行、数据/代码版本、配置、结果位置和局限；初始为草稿，人工复核后才可标已复核。索引是动态视图，不维护第二份手工主题清单；模板和首页不计入研究条目。
+Agent 开始研究前先读首页并搜索主题目录；已有主题就更新主结论与简短证据，新问题才创建 research-topic 笔记。模板保留运行、数据/代码版本、配置、结果位置和局限，初始为草稿，人工复核后才可标已复核。索引是动态视图，不维护第二份手工清单；模板和首页不计入研究条目。
 
-文件可直接读取/更新，无需开放 REST 插件、本机端口或传输笔记给外部服务。当前未导入旧研究文档，未配置/验证云同步、独立备份、多用户权限或图表系统集成；更换机器时重新确认 vault 路径。知识库不在代码仓库内，不把其纳入项目 Git 或 .scratch；备份须单独落实。
+文件可直接读取/更新，无需开放 REST 插件或本机端口。当前未导入旧研究文档，未配置/验证云同步、独立备份、多用户权限或图表集成；更换机器时重新确认 vault 路径。知识库不在仓库内，不纳入 Git 或 .scratch；备份须单独落实。
 
 ## 数据库配置与数据源接入
 
@@ -142,7 +141,7 @@ uv run python tools/project.py identity --identity-action invite-revoke --code-i
 
 ## 前端原型（Open Design）
 
-前端设计原型在 Open Design 桌面应用中维护，与本文档同目录的产品（早期 React 版本，现迁移到本仓库 Vue 3 + FastAPI）。Open Design 没有本地 HTTP/MCP 接口，**只能按数据目录只读访问**：
+前端设计原型在 Open Design 桌面应用维护，与本仓库同产品的早期 React 版本。Open Design 没有本地 HTTP/MCP 接口，**只能按数据目录只读访问**：
 
 ```sh
 uv run python tools/project.py prototype                 # 列出导航入口与视图
@@ -150,30 +149,37 @@ uv run python tools/project.py prototype --action shape  # 输出导航/视图 J
 uv run python tools/project.py prototype --action copy --to .scratch/prototype.html
 ```
 
-工具按 `stock-limit-up-analyzer` / `stock-research-platform` 字样定位项目，不硬编码项目 ID；找不到或匹配到多个时明确报错，不猜。当前连接的原型：13 个已实现入口、9 个待开发入口、22 个视图、13 份设计文档（含功能逻辑地图、设计完善清单、多轮审查记录）。
+工具按 `stock-limit-up-analyzer` / `stock-research-platform` 字样定位项目，不硬编码项目 ID；找不到或匹配多个时明确报错。当前原型：13 个已实现入口、9 个待开发入口、22 个视图、13 份设计文档。
 
-**原型是设计参考，不是代码来源**：本仓库技术栈（Vue 3 + Element Plus + openapi-fetch）与原型来源项目（React 19 + shadcn + tRPC）不同，页面需按原型的设计意图在本仓库重写，不能复制移植原型代码。实施前确认目标视图、数据来源（`/api/v1/market/*` 等）与原型示例数据的差异；原型中的模拟数据、未实现入口不得当成本仓库已有能力。
-
-未验证项：原型与当前后端接口的字段对齐、浅色主题对比度、移动端布局，均需在实现阶段逐页验收。
+**原型是设计参考，不是代码来源**：本仓库为 Vue 3 + Element Plus + openapi-fetch，原型来源项目为 React 19 + shadcn + tRPC，页面须按设计意图重写，不能复制移植。实施前确认目标视图、数据来源（`/api/v1/market/*` 等）与原型示例数据的差异；模拟数据与未实现入口不得当成本仓库已有能力。未验证项：字段对齐、浅色主题对比度、移动端布局，需逐页验收。
 
 ## 可选本机构建容器
 
-deploy/compose.yaml 是本机 MySQL 开发模板，端口只绑定 127.0.0.1；不会自动迁移数据库。
-
-在忽略的 deploy/.env 中提供 MYSQL_PASSWORD 和 MYSQL_ROOT_PASSWORD 后，在 deploy 目录执行：
-
-模板把密码作为独立环境变量传给应用，不再拼接连接 URL；Compose 的 .env 插值/引号规则仍需遵循，特别是 $ 字符。容器内仅为开发 MySQL 显式关闭 TLS，模板不挂载或连接旧研究源。源库接入时另行提供服务端环境与证书挂载，不直接复用应用账号。
+deploy/compose.yaml 是本机 MySQL 开发模板，端口只绑定 127.0.0.1，不会自动迁移数据库；在忽略的 deploy/.env 中提供 MYSQL_PASSWORD 与 MYSQL_ROOT_PASSWORD 后，在 deploy 目录执行：
 
 ```sh
-docker compose build
-docker compose up -d db
+docker compose build && docker compose up -d db
 docker compose run --rm api alembic -c backend/alembic.ini upgrade head
 docker compose up -d
 ```
 
-这组迁移命令仅适用于模板创建的新 research 数据库；现有生产库必须先做基线、备份和迁移评审。开发数据卷会保留；删除卷会丢数据，不在清理命令里自动执行。
+模板把密码作为独立环境变量传给应用，不拼接连接 URL，但需注意 Compose 的 .env 插值与 `$` 转义；容器内仅为开发 MySQL 关闭 TLS，不挂载或连接旧研究源。迁移命令仅适用于模板新建的 research 库，现有生产库须先基线、备份和评审；数据卷删除会丢数据。当前环境未安装 Docker，本模板尚未实际运行，不能据此宣称容器部署验收通过。
 
-当前环境未安装 Docker；本模板尚未实际运行，不能据此宣称 MySQL 兼容或容器部署验收通过。
+## dev 分支服务器部署（ECS + ACR + GitHub Actions）
+
+dev 站点是内部验证环境：公网 IP + HTTP，不满足下文发布门槛第 3 条，不能当生产用。设计与取舍见 D14。
+
+| 组件 | 位置 | 说明 |
+|---|---|---|
+| GitHub Actions / ACR | GitHub、阿里云 | 门禁、构建并推送 SHA 标签镜像、SSH 部署、远端冒烟 |
+| Docker Compose | ECS | `deploy/compose.server.yaml`；只有 web 发布端口（默认 8080） |
+| db | ECS | MySQL 8.4 容器，数据在卷 `mysql-data`，不公开 3306 |
+
+`deploy/compose.yaml`（本机）与 `compose.server.yaml`（服务器）互不覆盖，服务器不构建镜像。初始化：ECS 装 Docker 并开机自启，安全组只放行 8080 与 SSH；克隆仓库切到 dev；`cp deploy/env.server.example deploy/.env && chmod 600 deploy/.env` 后填 `ACR_*`、`MYSQL_*` 与 `RP_AUTH__SECRET`；首版 `bash deploy/deploy.sh --tag <SHA>`。首个账号在镜像内用 `python tools/project.py identity --identity-action user-create --email you@example.com --role admin` 创建。
+
+GitHub 配置：Secret `ACR_USERNAME`/`ACR_PASSWORD`/`ECS_HOST`/`ECS_USER`/`ECS_SSH_KEY`；Variable `ACR_REGISTRY`/`ACR_NAMESPACE`/`DEPLOY_PATH`/`WEB_PORT`。
+
+发布：推送 `dev` 触发门禁 → 构建 → SSH 部署（拉取、迁移、启动、健康检查）→ 冒烟 `/health/live` 与 `/health/ready`，同分支串行。健康检查失败自动回到上一版，状态在 `deploy/.state/`；手工回滚 `bash deploy/deploy.sh --rollback`。迁移在启动前单独执行，容器不跑迁移。未验收：本地无 Docker，编排、脚本与流水线尚未实际运行；ECS 首次部署、ACR 拉取与回滚演练待执行，通过前不得宣称可用。
 
 ## 进程生命周期（目标约定，待实施）
 
@@ -197,19 +203,17 @@ Windows 使用受控进程组的协作退出方式并保留进程树强停兜底
 
 ## 面向独立服务器的发布门槛
 
-1. 选定 Python 认证实现，完成邀请/会话/注销/禁用和私人资源双用户验证。
-2. 生产配置检查、MySQL 迁移、备份恢复演练通过；研究执行器和对象存储访问分别验收。
-3. 前后端静态资源/API 同域 HTTPS；接入 Caddy 或现有网关。数据库和存储管理口不公开。
-4. CI 类型/测试/构建及目标环境冒烟通过后，才正式解除当前生产启动阻断。
-5. 使用不可变镜像；保留上一版配置及恢复方案。禁止生产自动升级依赖或启动时自动生成 DDL。
+1. 选定认证实现，完成邀请/会话/注销/禁用与私人资源双用户验证。
+2. 生产配置检查、MySQL 迁移、备份恢复演练通过；研究执行器与对象存储分别验收。
+3. 前后端静态资源/API 同域 HTTPS 并接入网关；数据库与存储管理口不公开。
+4. CI 类型/测试/构建及目标环境冒烟通过后解除生产启动阻断；使用不可变镜像，保留上一版配置与恢复方案，禁止自动升级依赖或启动时生成 DDL。
 
 ## 故障处理
 
-- liveness 失败：检查进程和启动日志；production 阻断是有意行为。
-- readiness 失败：检查新库迁移和数据库可达性；不要用空数组冒充健康。
-- AUTH_NOT_CONFIGURED：真实身份尚未接入，不创建临时管理员绕过。
-- Worker 无待处理项：空闲正常；未知 handler 会显式失败。
-- 作业租约耗尽：最多三次后 LEASE_EXHAUSTED；保留记录调查原因，不覆盖旧终态。
-- 清理：只处理自己创建的 .scratch 内容，确认实际路径和用途；真实研究证据另有保留策略。
+- liveness 失败：查进程与启动日志；production 阻断是有意行为。
+- readiness 失败：查新库迁移与数据库可达性；不要用空数组冒充健康。
+- AUTH_NOT_CONFIGURED：身份未接入，不建临时管理员绕过。
+- Worker 无待处理项属正常；未知 handler 显式失败；租约耗尽最多三次后 LEASE_EXHAUSTED，保留记录不覆盖旧终态。
+- 清理只处理自己创建的 .scratch，确认真实路径用途；真实研究证据另有保留策略。
 
-日志不输出连接串、密码或会话令牌。磁盘、任务失败、队列等待和备份状态接入正式监控后再开放远程试用。
+日志不输出连接串、密码或会话令牌。磁盘、任务失败、队列等待与备份状态接入正式监控后再开放远程试用。
