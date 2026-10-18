@@ -1,0 +1,10 @@
+[Unit]
+Description=每 2 分钟检查 origin/dev 是否有新提交
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=stock-research-platform 拉取式部署（origin/dev）
+Documentation=https://github.com/MengHLS/stock-research-platform/blob/dev/docs/runbook.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/stock-research-platform
+ExecStart=/usr/bin/bash deploy/auto-deploy.sh
+TimeoutStartSec=900
