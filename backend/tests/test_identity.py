@@ -21,6 +21,15 @@ from research_platform.modules.identity.security import (
 SECRET = "test-secret-value-that-is-long-enough-32+"
 
 
+def signed_out(response) -> bool:
+    """A probe with no session answers 204 with an empty body."""
+    return response.status_code == 204 and response.content == b""
+
+
+def signed_in(response) -> bool:
+    return response.status_code == 200 and response.json()["user"]["email"]
+
+
 def auth_settings(database_url, **auth_overrides):
     auth = {"secret": SECRET, "cookie_secure": False, "allow_registration": True}
     auth.update(auth_overrides)
@@ -144,7 +153,7 @@ def test_login_works_and_logout_revokes_the_session(auth_client_factory):
         "/api/v1/auth/register", json={"email": "u@example.com", "password": "a-long-password"}
     )
     client.post("/api/v1/auth/logout")
-    assert client.get("/api/v1/auth/session").json() is None
+    assert signed_out(client.get("/api/v1/auth/session"))
 
     login = client.post(
         "/api/v1/auth/login", json={"email": "U@example.com", "password": "a-long-password"}
@@ -215,9 +224,15 @@ def test_session_cookie_is_required_and_forged_tokens_are_refused(auth_client_fa
     )
     stolen = client.cookies.get("rp_session")
     client.cookies.set("rp_session", "forged-token-value")
-    assert client.get("/api/v1/auth/session").json() is None
+    probe = client.get("/api/v1/auth/session")
+    assert signed_out(probe)
+    # A token that no longer resolves is expired, so the browser stops replaying
+    # it. Asserted on the header: the test client does not apply deletions to a
+    # cookie it was told to hold directly.
+    assert "rp_session=" in probe.headers.get("set-cookie", "")
+    assert "Max-Age=0" in probe.headers.get("set-cookie", "")
     client.cookies.set("rp_session", stolen)
-    assert client.get("/api/v1/auth/session").json() is not None
+    assert signed_in(client.get("/api/v1/auth/session"))
 
 
 def test_expired_session_is_rejected(auth_client_factory, session, database_url):
@@ -234,7 +249,7 @@ def test_expired_session_is_rejected(auth_client_factory, session, database_url)
     row = session.scalar(select(UserSession))
     row.expires_at = utc_now() - timedelta(minutes=1)
     session.commit()
-    assert client.get("/api/v1/auth/session").json() is None
+    assert signed_out(client.get("/api/v1/auth/session"))
 
 
 def test_private_route_now_requires_login(auth_client_factory):
@@ -277,7 +292,7 @@ def test_password_change_revokes_other_sessions(auth_client_factory):
     )
     token = first.cookies.get("rp_session")
     second.cookies.set("rp_session", token)
-    assert second.get("/api/v1/auth/session").json() is not None
+    assert signed_in(second.get("/api/v1/auth/session"))
 
     changed = first.post(
         "/api/v1/auth/password",
@@ -285,8 +300,8 @@ def test_password_change_revokes_other_sessions(auth_client_factory):
     )
     assert changed.status_code == 204
     # Every session, including the one that changed it, is revoked.
-    assert second.get("/api/v1/auth/session").json() is None
-    assert first.get("/api/v1/auth/session").json() is None
+    assert signed_out(second.get("/api/v1/auth/session"))
+    assert signed_out(first.get("/api/v1/auth/session"))
 
     relogin = first.post(
         "/api/v1/auth/login", json={"email": "p@example.com", "password": "another-long-password"}
@@ -351,3 +366,49 @@ def test_service_rejects_login_when_locked_even_with_correct_password(session, d
     with pytest.raises(DomainError) as locked:
         service.login(session, config, email="svc@example.com", password="a-long-password")
     assert locked.value.code == "ACCOUNT_LOCKED"
+
+
+def test_logout_clears_the_cookie_header(auth_client_factory):
+    """Logout must delete the cookie, not only revoke the row.
+
+    A fresh ``Response`` previously replaced the injected one, dropping the pending
+    cookie deletion, so the browser kept replaying a revoked token.
+    """
+    client = auth_client_factory()
+    client.post(
+        "/api/v1/auth/register", json={"email": "clr@example.com", "password": "a-long-password"}
+    )
+    response = client.post("/api/v1/auth/logout")
+    assert response.status_code == 204
+    cookie = response.headers.get("set-cookie", "")
+    assert "rp_session=" in cookie
+    assert "Max-Age=0" in cookie
+
+
+def test_signed_out_session_answers_204_without_a_body(auth_client_factory):
+    client = auth_client_factory()
+    response = client.get("/api/v1/auth/session")
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_session_probe_expires_a_token_that_no_longer_resolves(auth_client_factory):
+    """A stale cookie is dropped on the next probe, not carried forever."""
+    client = auth_client_factory()
+    client.cookies.set("rp_session", "no-longer-valid")
+    response = client.get("/api/v1/auth/session")
+    assert response.status_code == 204
+    assert "Max-Age=0" in response.headers.get("set-cookie", "")
+
+
+def test_password_change_clears_the_cookie_too(auth_client_factory):
+    client = auth_client_factory()
+    client.post(
+        "/api/v1/auth/register", json={"email": "pc@example.com", "password": "a-long-password"}
+    )
+    response = client.post(
+        "/api/v1/auth/password",
+        json={"current_password": "a-long-password", "new_password": "another-long-password"},
+    )
+    assert response.status_code == 204
+    assert "Max-Age=0" in response.headers.get("set-cookie", "")

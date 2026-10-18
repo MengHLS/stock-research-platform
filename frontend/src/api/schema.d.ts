@@ -159,6 +159,10 @@ export interface paths {
         /**
          * Logout
          * @description Revoke the current session server-side and clear the cookie.
+         *
+         *     Mutates the injected ``response`` instead of returning a new ``Response``:
+         *     returning a fresh object discards the pending ``Set-Cookie`` deletion, which
+         *     left the browser holding a revoked token until it expired.
          */
         post: operations["logout"];
         delete?: never;
@@ -176,7 +180,12 @@ export interface paths {
         };
         /**
          * Current Session
-         * @description Who is signed in, or ``null``. Never fails on a missing cookie.
+         * @description Who is signed in, or 204 when nobody is.
+         *
+         *     A signed-out probe answers **204 with no body**, not ``200 null``: a JSON
+         *     ``null`` body is indistinguishable from a truncated response for some clients,
+         *     and ``204`` states the fact in the status line. The cookie is cleared when it
+         *     is present but no longer valid, so a stale token stops being replayed.
          */
         get: operations["get_current_session"];
         put?: never;
@@ -1904,6 +1913,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionRead"] | null;
                 };
+            };
+            /** @description No active session */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Request cannot be processed */
             400: {

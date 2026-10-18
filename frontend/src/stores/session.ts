@@ -45,15 +45,10 @@ export const useSession = defineStore('session', () => {
       user.value = null
       return
     }
-    if (result.data) {
-      const session = result.data as { user: SessionUser }
-      user.value = session.user
-      status.value = 'authenticated'
-      error.value = null
-      return
-    }
-    user.value = null
-    status.value = 'anonymous'
+    // A signed-out probe answers 204 with no body, so `data` is undefined here.
+    const session = result.data as { user: SessionUser } | undefined
+    user.value = session?.user ?? null
+    status.value = session ? 'authenticated' : 'anonymous'
     error.value = null
   }
 
@@ -104,6 +99,11 @@ export const useSession = defineStore('session', () => {
     busy.value = true
     try {
       await callApi((signal) => api.POST('/api/v1/auth/logout', { signal }))
+    } catch {
+      // `callApi` reports failures as values, not exceptions, so reaching here
+      // means something unexpected (a bug, not an outage). Swallowing it is still
+      // right: the user asked to end the session, and the local state below is
+      // what the UI must reflect either way.
     } finally {
       // Clear locally even if the request failed: the UI must not keep showing a
       // session the user asked to end. The server row is revoked on its own.
@@ -111,6 +111,12 @@ export const useSession = defineStore('session', () => {
       status.value = 'anonymous'
       busy.value = false
     }
+  }
+
+  /** Called by the request layer when any endpoint answers 401. */
+  function expire() {
+    user.value = null
+    status.value = 'anonymous'
   }
 
   return {
@@ -124,5 +130,6 @@ export const useSession = defineStore('session', () => {
     login,
     register,
     logout,
+    expire,
   }
 })

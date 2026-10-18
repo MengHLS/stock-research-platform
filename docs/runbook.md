@@ -113,9 +113,11 @@ python -c "import secrets;print(secrets.token_urlsafe(48))"   # 生成后填入 
 |---|---|
 | `POST /api/v1/auth/register` | 注册并自动登录；`RP_AUTH__ALLOW_REGISTRATION=false` 时关闭 |
 | `POST /api/v1/auth/login` | 登录，写入 HttpOnly 会话 cookie |
-| `POST /api/v1/auth/logout` | 服务端撤销会话并清 cookie |
-| `GET /api/v1/auth/session` | 当前登录用户，未登录返回 `null`（不报错） |
-| `POST /api/v1/auth/password` | 修改密码，撤销该用户全部会话 |
+| `POST /api/v1/auth/logout` | 服务端撤销会话并清 cookie（`Max-Age=0`） |
+| `GET /api/v1/auth/session` | 当前登录用户；未登录返回 **204 无正文**（不是 200 空对象） |
+| `POST /api/v1/auth/password` | 修改密码，撤销该用户全部会话并清 cookie |
+
+前端契约：任何接口返回 401 时，请求层统一通知会话 store 并跳回登录页；未登录探测返回 204，前端据此区分“已询问且未登录”和“尚未询问”。
 
 安全语义：密码用标准库 `scrypt`（参数随哈希编码，可后续升级）；数据库只存**会话令牌的 SHA-256**，泄露库也无法重放；登录失败与账号不存在返回同一错误码，不泄露邮箱是否已注册；连续失败达 `RP_AUTH__MAX_FAILED_LOGINS` 后锁定 `RP_AUTH__LOCKOUT_MINUTES` 分钟；cookie 为 `HttpOnly` + `SameSite=Lax`，生产强制 `Secure`（未设置则启动失败）。
 

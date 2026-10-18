@@ -55,6 +55,18 @@ def _set_session_cookie(request: Request, response: Response, token: str) -> Non
     )
 
 
+def _clear_session_cookie(request: Request, response: Response) -> None:
+    """Expire the session cookie on the injected response (same name/path/attrs)."""
+    config = auth_config(request)
+    response.delete_cookie(
+        key=config.session_cookie if config else "rp_session",
+        path="/",
+        httponly=True,
+        secure=bool(config.cookie_secure) if config else True,
+        samesite="lax",
+    )
+
+
 @router.post(
     "/register", response_model=SessionRead, status_code=201, operation_id="register_account"
 )
@@ -94,31 +106,54 @@ def login(data: LoginRequest, request: Request, response: Response, session: Ses
     return SessionRead(user=_user_read(account), expires_at=expires_at)
 
 
-@router.post("/logout", status_code=204, operation_id="logout")
+@router.post("/logout", status_code=204, operation_id="logout", response_class=Response)
 def logout(request: Request, response: Response, session: SessionDep):
-    """Revoke the current session server-side and clear the cookie."""
+    """Revoke the current session server-side and clear the cookie.
+
+    Mutates the injected ``response`` instead of returning a new ``Response``:
+    returning a fresh object discards the pending ``Set-Cookie`` deletion, which
+    left the browser holding a revoked token until it expired.
+    """
     token = session_token(request)
     if token:
         service.logout(session, token=token)
-    config = auth_config(request)
-    response.delete_cookie(config.session_cookie if config else "rp_session", path="/")
-    return Response(status_code=204)
+    _clear_session_cookie(request, response)
+    response.status_code = 204
+    return response
 
 
-@router.get("/session", response_model=SessionRead | None, operation_id="get_current_session")
+@router.get(
+    "/session",
+    response_model=SessionRead | None,
+    responses={204: {"description": "No active session"}},
+    operation_id="get_current_session",
+)
 def current_session(
     request: Request,
+    response: Response,
     actor: Annotated[Actor | None, Depends(optional_actor)],
     session: SessionDep,
 ):
-    """Who is signed in, or ``null``. Never fails on a missing cookie."""
+    """Who is signed in, or 204 when nobody is.
+
+    A signed-out probe answers **204 with no body**, not ``200 null``: a JSON
+    ``null`` body is indistinguishable from a truncated response for some clients,
+    and ``204`` states the fact in the status line. The cookie is cleared when it
+    is present but no longer valid, so a stale token stops being replayed.
+    """
+    token = session_token(request)
     if actor is None:
-        return None
-    account, row = service.resolve_session(session, token=session_token(request) or "")
+        if token:
+            # The browser still presents a token that no longer resolves: drop it
+            # so it is not replayed on every later request.
+            _clear_session_cookie(request, response)
+        response.status_code = 204
+        return response
+    account, row = service.resolve_session(session, token=token or "")
     return SessionRead(user=_user_read(account), expires_at=row.expires_at)
 
 
-@router.post("/password", status_code=204, operation_id="change_password")
+@router.post("/password", status_code=204, operation_id="change_password", response_class=Response)
 def change_password(
     data: ChangePasswordRequest,
     request: Request,
@@ -134,6 +169,6 @@ def change_password(
         current_password=data.current_password,
         new_password=data.new_password,
     )
-    config = auth_config(request)
-    response.delete_cookie(config.session_cookie if config else "rp_session", path="/")
-    return Response(status_code=204)
+    _clear_session_cookie(request, response)
+    response.status_code = 204
+    return response

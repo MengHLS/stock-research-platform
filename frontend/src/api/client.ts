@@ -92,5 +92,33 @@ export async function callApi<T>(
   options: CallApiOptions = {},
 ): Promise<ApiResult<T>> {
   const { access = 'read', policy = ACCESS_POLICIES[access], signal, timeoutMs, sleep } = options
-  return runWithPolicy(asAttempt(call), { policy, signal, timeoutMs, sleep })
+  const result = await runWithPolicy(asAttempt(call), { policy, signal, timeoutMs, sleep })
+  if (!result.ok) {
+    notifyUnauthorized(result.failure)
+  }
+  return result
+}
+
+/**
+ * One place that reacts to a lost session.
+ *
+ * Any endpoint can answer 401 when a session expires or is revoked elsewhere. The
+ * session store is told so the shell drops the signed-in chrome on the next render;
+ * the error itself is still returned to the caller, which decides how to report it
+ * (the login page must show it, an ordinary page usually just redirects).
+ *
+ * Registered from `main.ts` rather than importing the store here: the request layer
+ * stays free of UI state, and tests can run it without Pinia.
+ */
+type UnauthorizedHandler = () => void
+let onUnauthorized: UnauthorizedHandler | null = null
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  onUnauthorized = handler
+}
+
+function notifyUnauthorized(failure: { status: number | null }): void {
+  if (failure.status === 401) {
+    onUnauthorized?.()
+  }
 }
