@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from fastapi import HTTPException
+from research_platform.core.errors import DomainError
 
 
 @dataclass(frozen=True)
@@ -9,11 +9,9 @@ class Actor:
 
 
 def require_actor() -> Actor:
-    """Replace with verified session resolution when identity is implemented."""
-    raise HTTPException(
-        status_code=503,
-        detail={
-            "code": "AUTH_NOT_CONFIGURED",
-            "message": "登录模块尚未接入；私人资源不可访问。",
-        },
-    )
+    """Replace with verified session resolution when identity is implemented.
+
+    Raises the reviewed ``AUTH_NOT_CONFIGURED`` code instead of a hand-built
+    response so the status, HTTP body and log category all come from one table.
+    """
+    raise DomainError("AUTH_NOT_CONFIGURED")

@@ -20,7 +20,11 @@ services:
       dockerfile: deploy/backend.Dockerfile
     environment:
       RP_ENVIRONMENT: development
-      RP_DATABASE_URL: mysql+pymysql://research:${MYSQL_PASSWORD}@db:3306/research
+      RP_DATABASE_MYSQL__HOST: db
+      RP_DATABASE_MYSQL__DATABASE: research
+      RP_DATABASE_MYSQL__USERNAME: research
+      RP_DATABASE_MYSQL__PASSWORD: ${MYSQL_PASSWORD:?Supply a development database password}
+      RP_DATABASE_MYSQL__TLS: disabled
     depends_on:
       db:
         condition: service_healthy
@@ -33,7 +37,11 @@ services:
     command: [python, -m, research_platform.modules.execution.worker]
     environment:
       RP_ENVIRONMENT: development
-      RP_DATABASE_URL: mysql+pymysql://research:${MYSQL_PASSWORD}@db:3306/research
+      RP_DATABASE_MYSQL__HOST: db
+      RP_DATABASE_MYSQL__DATABASE: research
+      RP_DATABASE_MYSQL__USERNAME: research
+      RP_DATABASE_MYSQL__PASSWORD: ${MYSQL_PASSWORD:?Supply a development database password}
+      RP_DATABASE_MYSQL__TLS: disabled
     depends_on:
       db:
         condition: service_healthy

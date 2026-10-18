@@ -1,18 +1,63 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { api } from '../api/client'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { api, callApi } from '../api/client'
+import type { ApiFailure } from '../api/errors'
 
-const status = ref('检查中')
+type ProbeState = 'checking' | 'connected' | 'unready' | 'failed'
+
+const state = ref<ProbeState>('checking')
 const version = ref('—')
-onMounted(async () => {
-  try {
-    const { data } = await api.GET('/health/live')
-    status.value = data?.status === 'ok' ? '已连接' : '未就绪'
-    version.value = data?.version ?? '—'
-  } catch {
-    status.value = '未连接'
+const authentication = ref<'not_configured' | null>(null)
+const failure = ref<ApiFailure | null>(null)
+let controller: AbortController | null = null
+
+/** 健康探活走 diagnostic 策略：5 秒超时、不重试，只回答“现在是否可用”。 */
+async function probe() {
+  controller?.abort()
+  const current = new AbortController()
+  controller = current
+  state.value = 'checking'
+  failure.value = null
+  const result = await callApi((signal) => api.GET('/health/live', { signal }), {
+    access: 'diagnostic',
+    signal: current.signal,
+  })
+  if (controller !== current) return
+  if (!result.ok) {
+    // 主动取消（页面已离开）不改变状态，也不展示错误。
+    if (result.failure.kind === 'aborted') return
+    state.value = 'failed'
+    failure.value = result.failure
+    version.value = '—'
+    authentication.value = null
+    return
+  }
+  state.value = result.data.status === 'ok' ? 'connected' : 'unready'
+  version.value = result.data.version
+  authentication.value = result.data.authentication
+}
+
+const tagType = computed(() => {
+  if (state.value === 'connected') return 'success'
+  if (state.value === 'failed' || state.value === 'unready') return 'danger'
+  return 'info'
+})
+
+const label = computed(() => {
+  switch (state.value) {
+    case 'connected':
+      return '已连接'
+    case 'unready':
+      return '未就绪'
+    case 'failed':
+      return '未连接'
+    default:
+      return '检查中'
   }
 })
+
+onMounted(probe)
+onUnmounted(() => controller?.abort())
 </script>
 
 <template>
@@ -23,9 +68,24 @@ onMounted(async () => {
       前后端分离、业务模块清晰、接口类型自动生成。这里展示实际工程状态，不模拟研究收益或任务完成。
     </p>
     <div class="hero-bottom">
-      <el-tag :type="status === '已连接' ? 'success' : 'info'">API {{ status }}</el-tag
+      <el-tag :type="tagType">API {{ label }}</el-tag
       ><span>版本 {{ version }}</span>
     </div>
+    <el-alert
+      v-if="authentication === 'not_configured'"
+      title="登录模块尚未接入（AUTH_NOT_CONFIGURED），私人资源不可访问。"
+      type="warning"
+      :closable="false"
+      show-icon
+    />
+    <el-alert v-if="failure" :title="failure.message" type="error" :closable="false" show-icon>
+      <p class="request-id">
+        <template v-if="failure.requestId">
+          请求编号 request_id：<code>{{ failure.requestId }}</code>
+        </template>
+        <template v-else>本次失败没有收到 request_id。</template>
+      </p>
+    </el-alert>
   </section>
   <div class="cards">
     <section class="panel">
@@ -57,3 +117,13 @@ onMounted(async () => {
     />
   </section>
 </template>
+
+<style scoped>
+.request-id {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.request-id code {
+  user-select: all;
+}
+</style>

@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -79,7 +80,12 @@ def contract(check: bool = False) -> None:
     generated = SCRATCH / "schema.d.ts"
     frontend("exec", "openapi-typescript", "../.scratch/openapi.json", "-o", str(generated))
     committed = ROOT / "frontend/src/api/schema.d.ts"
-    if not committed.exists() or generated.read_text() != committed.read_text():
+    # Explicit UTF-8 on both sides: the default locale encoding is cp936/GBK on a
+    # Chinese Windows install and cannot decode the Chinese error messages that
+    # the OpenAPI schema now contains.
+    if not committed.exists() or generated.read_text(encoding="utf-8") != committed.read_text(
+        encoding="utf-8"
+    ):
         raise SystemExit("API contract drift: run `uv run python tools/project.py contract`")
 
 
@@ -88,7 +94,11 @@ def migrate() -> None:
 
     settings = Settings()
     url = settings.database_url.get_secret_value()
-    if settings.environment == "production" or not url.startswith("sqlite:///"):
+    if (
+        settings.database_mysql
+        or settings.environment == "production"
+        or not url.startswith("sqlite:///")
+    ):
         raise SystemExit("Automatic task migration is limited to the new local SQLite database")
     target = Path(url.removeprefix("sqlite:///"))
     if target.is_absolute() or not target.resolve().is_relative_to(SCRATCH.resolve()):
@@ -143,14 +153,242 @@ def dev() -> None:
                 process.kill()
 
 
+def database_config(target: str, connect: bool) -> None:
+    from pydantic import ValidationError
+    from pydantic_settings import SettingsError
+    from sqlalchemy import text
+    from sqlalchemy.engine import make_url
+
+    from research_platform.core.config import Settings
+    from research_platform.core.database import make_application_engine, make_source_engine
+
+    try:
+        settings = Settings()
+    except ValidationError as error:
+        # ValidationError.errors() includes original inputs: never serialize it here.
+        fields = [".".join(map(str, item["loc"])) or "database_roles" for item in error.errors()]
+        raise SystemExit("Invalid database configuration fields: " + ", ".join(fields)) from None
+    except SettingsError:
+        raise SystemExit(
+            "Invalid environment configuration encoding; inspect .env privately"
+        ) from None
+    profile = settings.database_mysql if target == "app" else settings.source_mysql
+    summary = {"target": target, "configured": target == "app" or profile is not None}
+    summary["driver"] = (
+        "mysql+pymysql"
+        if profile
+        else (make_url(settings.application_url()).drivername if target == "app" else "disabled")
+    )
+    summary["tls"] = (
+        profile.tls
+        if profile
+        else (
+            None
+            if target == "source"
+            else ("not-applicable" if summary["driver"] == "sqlite" else "see-url")
+        )
+    )
+    if target == "source":
+        summary["source_permissions"] = "SELECT-only account required; not verified"
+    print(json.dumps(summary), flush=True)
+    if not connect:
+        return
+    if not summary["configured"]:
+        raise SystemExit("SOURCE_NOT_CONFIGURED")
+    engine = None
+    try:
+        engine = (
+            make_application_engine(settings) if target == "app" else make_source_engine(settings)
+        )
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        print("Database connectivity passed (SELECT 1 only; schema/permissions not verified)")
+    except Exception:
+        raise SystemExit(
+            "Database connectivity failed; check credentials, network and TLS privately"
+        ) from None
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+
+# --- Open Design prototype access -------------------------------------------
+# Open Design is a desktop app with no local HTTP/MCP surface, so the connection
+# is read-only over its data directory. The prototype is a design reference, not
+# a code source: this only reports structure and can copy the HTML out.
+
+PROTOTYPE_MARKERS = ("stock-limit-up-analyzer", "stock-research-platform")
+PROTOTYPE_ENTRY = "index.html"
+PROTOTYPE_NAMESPACE = "release-stable-win"
+
+
+def prototype_projects_root() -> Path:
+    roaming = os.environ.get("APPDATA") or str(Path.home() / "AppData/Roaming")
+    return Path(roaming) / "Open Design" / "namespaces" / PROTOTYPE_NAMESPACE / "data" / "projects"
+
+
+def prototype_find_project(root: Path) -> Path:
+    if not root.is_dir():
+        raise SystemExit(f"Open Design data directory not found: {root}; open the app once")
+    matches = []
+    for candidate in sorted(root.iterdir()):
+        entry = candidate / PROTOTYPE_ENTRY
+        if not candidate.is_dir() or not entry.is_file():
+            continue
+        for path in [entry, *sorted(candidate.glob("*.md"))]:
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if any(marker in text for marker in PROTOTYPE_MARKERS):
+                matches.append(candidate)
+                break
+    if not matches:
+        raise SystemExit(f"No Open Design project mentions any of {PROTOTYPE_MARKERS}")
+    if len(matches) > 1:
+        listed = "\n".join(f"  {path}" for path in matches)
+        raise SystemExit(f"Several prototype projects match; choose explicitly:\n{listed}")
+    return matches[0]
+
+
+def prototype_navigation(html: str) -> list[dict]:
+    start = html.find("NAV = [")
+    if start < 0:
+        return []
+    end = html.find("\n];", start)
+    if end < 0:
+        return []
+    block = html[start : end + 3]
+    groups = []
+    for group in re.finditer(r'title:\s*"([^"]+)",\s*items:\s*\[(.*?)\]\s*\}', block, re.S):
+        items = [
+            {
+                "id": match.group(1),
+                "name": match.group(2),
+                "implemented": "on: true" in match.group(3),
+            }
+            for match in re.finditer(
+                r'\{\s*id:\s*"([^"]+)",\s*name:\s*"([^"]+)"([^}]*)\}', group.group(2)
+            )
+        ]
+        groups.append({"title": group.group(1), "items": items})
+    return groups
+
+
+def prototype_views(html: str) -> list[str]:
+    return sorted(set(re.findall(r"function\s+(render[A-Z][A-Za-z]*)", html)))
+
+
+def prototype(action: str = "list", destination: str | None = None) -> None:
+    """Report the connected Open Design prototype (or copy its HTML out)."""
+    project = prototype_find_project(prototype_projects_root())
+    entry = project / PROTOTYPE_ENTRY
+    html = entry.read_text(encoding="utf-8", errors="ignore")
+    if action == "copy":
+        if not destination:
+            raise SystemExit("prototype copy needs --to PATH")
+        target = Path(destination)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(entry, target)
+        print(f"copied prototype to {target} ({target.stat().st_size} bytes)")
+        return
+    navigation = prototype_navigation(html)
+    views = prototype_views(html)
+    if action == "shape":
+        print(json.dumps({"navigation": navigation, "views": views}, ensure_ascii=False, indent=2))
+        return
+    print(f"project : {project.name}")
+    print(f"entry   : {entry} ({entry.stat().st_size} bytes)")
+    print(f"docs    : {len(list(project.glob('*.md')))}")
+    implemented = 0
+    total = 0
+    for group in navigation:
+        print(f"[{group['title']}]")
+        for item in group["items"]:
+            total += 1
+            implemented += item["implemented"]
+            mark = " " if item["implemented"] else "."
+            print(f"  {mark} {item['id']:16s} {item['name']}")
+    print(f"views   : {len(views)} render functions")
+    print(f"entries : {implemented} implemented, {total - implemented} planned")
+
+
+def market_check() -> None:
+    """Read-only probe of the public market sources; never writes, never prints secrets.
+
+    Reports what actually happened, including a degraded auction: an empty curve
+    with a recovered 09:25 trade is "degraded", not "ok" and not "empty".
+    """
+    from research_platform.core.config import Settings
+    from research_platform.core.errors import DomainError
+    from research_platform.core.upstream import UpstreamClient
+    from research_platform.modules.market.service import MarketService
+
+    settings = Settings()
+    client = UpstreamClient(settings)
+    service = MarketService(settings, client)
+    summary: dict[str, str] = {}
+    try:
+        for probe, call in (
+            ("quote", lambda: service.quote("600519")),
+            ("intraday", lambda: service.intraday("600519", "m1", 5)),
+            ("auction", lambda: service.auction("600519")),
+            ("daily", lambda: service.daily("600519", None, None)),
+        ):
+            try:
+                result = call()
+                if probe == "quote":
+                    summary[probe] = f"ok (price={result.price})"
+                elif probe == "auction":
+                    if result.degraded:
+                        summary[probe] = (
+                            f"degraded (provider={result.provider}, "
+                            f"snapshots={len(result.snapshots)}, "
+                            f"matched={result.matched_price})"
+                        )
+                    else:
+                        summary[probe] = f"ok ({len(result.snapshots)} snapshots)"
+                else:
+                    summary[probe] = f"ok ({result.total} bars)"
+            except DomainError as error:
+                summary[probe] = f"unavailable ({error.code})"
+    finally:
+        client.close()
+    summary["tushare_configured"] = str(settings.tushare is not None).lower()
+    summary["upstream_enabled"] = str(settings.upstream.enabled).lower()
+    print(json.dumps(summary, ensure_ascii=False), flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "task", choices=["check", "hygiene", "contract", "migrate-local", "dev", "worker"]
+        "task",
+        choices=[
+            "check",
+            "hygiene",
+            "contract",
+            "migrate-local",
+            "dev",
+            "worker",
+            "db-config",
+            "db-check",
+            "market-check",
+            "prototype",
+        ],
     )
+    parser.add_argument("--target", choices=["app", "source"], default="app")
+    parser.add_argument(
+        "--action",
+        choices=["list", "shape", "copy"],
+        default="list",
+        help="prototype: list navigation, dump shape JSON, or copy the HTML",
+    )
+    parser.add_argument("--to", metavar="PATH", help="prototype copy: destination path")
     args = parser.parse_args()
     os.chdir(ROOT)
-    if args.task == "hygiene":
+    if args.task in ("db-config", "db-check"):
+        database_config(args.target, connect=args.task == "db-check")
+    elif args.task == "hygiene":
         hygiene()
     elif args.task == "contract":
         contract()
@@ -160,6 +398,10 @@ def main() -> None:
         dev()
     elif args.task == "worker":
         run(sys.executable, "-m", "research_platform.modules.execution.worker")
+    elif args.task == "market-check":
+        market_check()
+    elif args.task == "prototype":
+        prototype(args.action, args.to)
     else:
         hygiene()
         run("ruff", "check", "backend", "tools")

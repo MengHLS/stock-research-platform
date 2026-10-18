@@ -8,13 +8,122 @@
 
 接口修改后运行 contract 并提交生成的 schema.d.ts。check 会独立重新生成到忽略目录并比较，不悄悄覆盖已提交的契约。
 
+## 错误排查与日志
+
+API 与 Worker 只向 stdout/stderr 输出单行 JSON；`RP_LOG_LEVEL` 取 DEBUG/INFO/WARNING/ERROR，默认 INFO。不按模块写日志文件，轮转与收集交给运行环境。
+
+```json
+{"ts":"2026-10-18T02:14:06.074Z","level":"INFO","role":"api","event":"request.completed","request_id":"4a74…","method":"GET","route":"/api/v1/catalog","status":503,"duration_ms":8.2,"error_code":"AUTH_NOT_CONFIGURED"}
+```
+
+- 用户报错时先取页面显示的 `request_id`（等同响应头 `X-Request-ID` 与错误体 `detail.request_id`），再按该值过滤 `request.completed`；同一请求的全部事件带同一编号。
+- 未处理异常记录 `request.failed`（`error_type` 只含类名，不含消息与堆栈）和固定的 500 安全文案；不要用日志中的类名反推用户输入。
+- `route` 是路由模板，未匹配为 `unmatched`；日志中不会出现具体资源 ID、查询串、Cookie、Authorization、密码、连接串或租约 token。字段名命中敏感词或值形似带凭据 URL 时输出 `[redacted]`/`[redacted-url]`，未知对象只写类名。
+- Worker 事件为 `worker.started`、`job.claimed`、`job.completed`（含 `outcome`、`duration_ms`、`error_code`）、`worker.connect_retry`、`worker.fatal`、`worker.stopped`；用 `job_id`+`attempt` 关联，不能用租约 token 检索。
+- 错误分类、事件字段与脱敏规则见架构“统一错误与日志”；新增业务错误码必须先在 `core/errors.py` 的 `ERROR_SPECS` 登记状态与安全文案，未登记会落兜底 400 并暴露评审缺口。
+
+超时与重试以 `core/policies.py` 为准：read 15 秒/最多 1 次（仅网络与 502/503/504）、write 30 秒/不重试、diagnostic 5 秒/不重试、submit 20 秒/不重试、worker-connect 10 秒/最多 3 次（1/2/4 秒）。排障时先确认失败属于超时、取消还是业务错误，不要通过放大 HTTP 超时掩盖慢查询；耗时计算应提交后台作业。
+
+## 研究知识库
+
+本机使用已安装的 Obsidian，在既有「投资」vault 内新增专区，不另建或移动整个笔记库：
+
+- vault：`F:/Users/A/Desktop/Obsidian-workspace/stock/投资`
+- 首页：`研究工作台/研究入口.md`；主题：`研究工作台/主题/`
+- 模板：`研究工作台/模板/研究主题.md`；索引：`研究工作台/研究索引.base`
+- 使用既有启用的核心 Templates/Bases，无社区插件；新建 templates.json 指向专区模板目录，未覆盖旧模板配置。若运行中的客户端尚未加载，重启 Obsidian；也可直接复制模板到主题目录使用。
+
+Agent 开始研究前先读取首页并搜索主题目录；已有主题就更新主结论和简短证据记录，新问题才创建 research-topic 笔记。模板保留运行、数据/代码版本、配置、结果位置和局限；初始为草稿，人工复核后才可标已复核。索引是动态视图，不维护第二份手工主题清单；模板和首页不计入研究条目。
+
+文件可直接读取/更新，无需开放 REST 插件、本机端口或传输笔记给外部服务。当前未导入旧研究文档，未配置/验证云同步、独立备份、多用户权限或图表系统集成；更换机器时重新确认 vault 路径。知识库不在代码仓库内，不把其纳入项目 Git 或 .scratch；备份须单独落实。
+
+## 数据库配置与数据源接入
+
+配置模板是根目录 `.env.example`。本地复制为被 Git 忽略的 `.env` 后填写；部署通过服务端环境变量注入，优先级为进程环境高于 .env，高于默认值。模板中的可选 MySQL 配置均为注释，默认不访问外部网络。禁止把配置或校验错误中的原始输入整体输出。
+
+日志级别用 `RP_LOG_LEVEL`（DEBUG/INFO/WARNING/ERROR，默认 INFO）配置，API 与 Worker 共用同一取值；它只影响输出量，不改变错误分类与脱敏规则。
+
+| 角色 | 配置 | 用途与权限 |
+|---|---|---|
+| 应用库 app | 默认 `RP_DATABASE_URL` 指向本工程 SQLite；MySQL 使用 `RP_DATABASE_MYSQL__*` | 新系统业务数据，API/Worker/Alembic 共用；按运行/迁移职责最小授权 |
+| 研究源 source | `RP_SOURCE_MYSQL__*`，未配置即关闭 | 现有 MySQL/TiDB 的研究输入，必须使用数据库端专用 SELECT-only 账号；不绑定应用 ORM 或 Alembic |
+
+两套 MySQL 配置均含 HOST、PORT、DATABASE、USERNAME、PASSWORD、TLS、可选 CA_FILE、CONNECT_TIMEOUT 和 READ_TIMEOUT。PASSWORD 保持原值，由 URL.create 构造连接参数；无需手工拼接或 URL 转义。dotenv 中带 #、空格等字符的密码应加引号，容器环境变量则传原值。完整字段以 `.env.example` 和 Settings 为准。
+
+默认 TLS=verify，校验证书链及主机名；CA_FILE 未设时用系统信任根。自签发 CA 通过服务端私有路径配置。TLS=disabled 仅用于隔离的本机开发环境，不得用于公网 TiDB；不提供跳过证书验证的“prefer”模式。
+
+结构化应用 MySQL 启用时移除 RP_DATABASE_URL；相同主机/端口/库名的应用与源配置会被拒绝，但 DNS 别名、转发地址等仍需人工核实。旧式应用 URL 为兼容保留，远程 MySQL 应迁到结构化配置以统一 TLS/超时控制。角色检查不是数据库访问权限证明。
+
+统一任务入口（在项目根目录执行）：
+
+```sh
+uv run python tools/project.py db-config --target app
+uv run python tools/project.py db-config --target source
+uv run python tools/project.py db-check --target app
+# 仅在专用账号就绪且获准连接后，才执行 source 的 db-check：
+# uv run python tools/project.py db-check --target source
+```
+
+db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 SELECT 1 连通检查，不建表、不扫描业务数据，也不证明只读授权、表结构或研究语义正确。源库权限由管理员核实实际授权及继承角色；不能通过尝试写生产表验证只读。TiDB 的普通 READ ONLY 事务声明并非可靠写保护，见[官方说明](https://docs.pingcap.com/tidbcloud/sql-statement-set-transaction/)。
+
+旧项目使用 DATABASE_URL、TUSHARE_TOKEN 及 MINIO_*；它们不自动继承。旧 Node mysql URL 的 ssl JSON 参数不能直接搬给 PyMySQL。当前未复制旧凭据、未连接旧库；Tushare 采集和 MinIO 产物存储是独立适配任务，不混入数据库配置。
+
+源库首次接入前需确认：真实库位置与表范围、独立只读账号、TLS/CA、网络白名单和预期快照版本。随后只做授权的连通/结构检查；取数、冻结快照、缓存和研究对拍分别验收。源库未配不妨碍本地应用开发，应用健康检查不冒充研究源健康。
+
+## 公共行情数据源
+
+腾讯分钟K线/竞价与东方财富竞价**无需配置**，只读、无 key；Tushare 日线可选，需 `RP_TUSHARE__TOKEN`。字段见 `.env.example`；`RP_UPSTREAM__*` 控制超时、重试、按源最小间隔与缓存秒数，`enabled=false` 时接口返回 `MARKET_SOURCE_DISABLED` 且不发任何外网请求。
+
+| 接口 | 来源 | 说明 |
+|---|---|---|
+| `GET /api/v1/market/quote` | 腾讯 | 实时快照：最新价/昨收/涨跌停/行情时间；覆盖沪深北与指数，盘前竞价时段也可读 |
+| `GET /api/v1/market/intraday` | 腾讯 | `symbol`、`period=m1|m5|m15|m30|m60`、`limit<=800`；无北交所 |
+| `GET /api/v1/market/auction` | 东财曲线 + 新浪成交 | 09:15–09:25 虚拟撮合曲线来自东财（`push2`/`push2his` 多主机轮换）；09:25 实际成交优先东财，降级时来自新浪（沪深北/科创/ETF/指数全覆盖、股数精确）。全部失败时 `degraded=true`、`snapshots=[]`，前端必须显示降级状态 |
+| `GET /api/v1/market/daily` | Tushare | `symbol`、可选 `start`/`end`（YYYY-MM-DD） |
+| `GET /api/v1/market/sources` | 本服务 | 各源是否配置；不触发外网请求 |
+| `GET /api/v1/market/session` | 本服务 | 当前时段标签，按时钟判断，不代表交易日历 |
+
+标的写法：**规范形态为后缀式 `600519.SH` / `000001.SZ` / `920982.BJ`**，返回的 `symbol` 一律是该形态；入参同时接受 `600519`、`sh600519`、`sh.600519`、`SH600519`、`600519.sh` 等变体，统一折叠为规范形态。上证指数号段（`000001`/`000010`/`000016`/`000300`/`000688`/`000852`/`000905`）与深市股票同时使用 `000xxx`，深市指数 `399001`/`399106` 也需区分，这些**必须带交易所前缀**；裸代码一律 400 `MARKET_SYMBOL_INVALID`，不做猜测。北交所（`bj` 前缀）无腾讯分钟线，返回 `MARKET_DATA_UNAVAILABLE` 而不是空数组。日内K线与日线的成交量均换算为股（`volume_shares`）；腾讯快照因股票/ETF/指数口径不一致，字段为 `volume_lots` 并附 `volume_note`。时间对外为 UTC ISO 8601，另附 `trading_day` 交易日。
+
+失败码：`MARKET_SYMBOL_INVALID`(400)、`MARKET_DATA_UNAVAILABLE`(404)、`MARKET_SOURCE_UNAVAILABLE`(503)、`MARKET_SOURCE_BAD_RESPONSE`(502)、`MARKET_SOURCE_NOT_CONFIGURED`/`MARKET_SOURCE_DISABLED`(503)、`MARKET_SOURCE_PERMISSION_DENIED`(503)、`MARKET_SOURCE_RATE_LIMITED`(429)。供应商原始报文与 Tushare token 不写日志、不回前端。
+
+Tushare 侧需自行确认账号权限：本机继承的旧 token 实测 `daily`、`daily_basic`、`trade_cal` 可用，`stk_mins` 限每小时 1 次，`stk_auction`、`rt_k`、`fund_daily` 无权限，因此竞价与日内不走 Tushare。新账号开通后无需改代码即可用 `daily`；`stk_auction` 若要接入需新增 provider 与对拍，不能直接假定字段一致。
+
+竞价降级判定：`provider=eastmoney` 表示拿到完整 09:15–09:25 曲线；`provider=sina` 且 `degraded=true` 表示东财曲线不可用、只有 09:25 成交（新浪覆盖全部板块且股数精确）；`provider=tencent` 是新浪也失败时的最后兜底（科创板股数取 09:30 分钟线校正）。降级时 `matched_time`/`matched_volume_shares`/`matched_amount` 仍有效但 `snapshots` 为空，`limits` 里写明降级原因。
+
+时间字段一律 UTC（`...Z` 或 `+00:00`），`trading_day` 单独给交易日。若返回的竞价属于**早于当前交易所日期**的交易日（盘前或非交易日读到的上一交易日数据），`limits` 会明确写“不是今日竞价”，前端必须据此标注而不能当今日数据展示。上游 429 映射为 `MARKET_SOURCE_RATE_LIMITED`(429)，与 `MARKET_SOURCE_UNAVAILABLE`(503) 区分。
+
+验证：`uv run python tools/project.py market-check` 只读探测上述公共源并输出各自状态（不发写请求、不写库）。当前未验收的部分：真实网络抖动下的重试/超时、供应商限流阈值、代理环境（本机走 HTTP 代理时 httpx2 的 `trust_env` 关闭策略需在部署环境确认）、盘前 09:15–09:25 实时轮询（离线只能验证已收盘交易日的曲线与降级路径），以及历史日内数据的冻结快照。东财曲线在本地代理环境下的失败原因（已定位，2026-10-18）：本机 Clash 类代理以 **fake-ip** 模式应答 DNS，`push2.eastmoney.com` 被解析为 `198.18.0.166`、`push2his.eastmoney.com` 为 `198.18.0.163`（`198.18.0.0/15` 是保留测试段），代理未能完成到东财的 TLS 隧道；同时东财服务端要求 TLS 重协商，Windows schannel 与 Python/OpenSSL 均拒绝。**直连真实 IP 可正常取得完整曲线**（`ssl_verify_result=0`，连续 6 次 200）。
+
+因此 `/auction` 现在有两层兜底，无需改代码：
+1. **多主机轮换** `push2` → `push2his`（同一 endpoint、同一报文）；
+2. **可选地址固定** `RP_UPSTREAM__HOST_ADDRESSES`，为被 fake-ip 拦截的主机指定已核实真实地址。实现是**逐请求**改写目标地址并保留 `Host` 头与 TLS `sni_hostname`，证书仍按域名校验；不修改进程全局解析器（早期版本用 `socket.getaddrinfo` 补丁，并发请求会互相覆盖并污染后续所有 DNS 解析，已废弃）。
+
+排查步骤：`curl -4 --noproxy "*" https://push2his.eastmoney.com/...` 能通说明是代理 DNS 问题；把解析到的真实 IP 填进 `RP_UPSTREAM__HOST_ADDRESSES` 即可。也可临时退出代理直连验证。
+
+## 前端原型（Open Design）
+
+前端设计原型在 Open Design 桌面应用中维护，与本文档同目录的产品（早期 React 版本，现迁移到本仓库 Vue 3 + FastAPI）。Open Design 没有本地 HTTP/MCP 接口，**只能按数据目录只读访问**：
+
+```sh
+uv run python tools/project.py prototype                 # 列出导航入口与视图
+uv run python tools/project.py prototype --action shape  # 输出导航/视图 JSON
+uv run python tools/project.py prototype --action copy --to .scratch/prototype.html
+```
+
+工具按 `stock-limit-up-analyzer` / `stock-research-platform` 字样定位项目，不硬编码项目 ID；找不到或匹配到多个时明确报错，不猜。当前连接的原型：13 个已实现入口、9 个待开发入口、22 个视图、13 份设计文档（含功能逻辑地图、设计完善清单、多轮审查记录）。
+
+**原型是设计参考，不是代码来源**：本仓库技术栈（Vue 3 + Element Plus + openapi-fetch）与原型来源项目（React 19 + shadcn + tRPC）不同，页面需按原型的设计意图在本仓库重写，不能复制移植原型代码。实施前确认目标视图、数据来源（`/api/v1/market/*` 等）与原型示例数据的差异；原型中的模拟数据、未实现入口不得当成本仓库已有能力。
+
+未验证项：原型与当前后端接口的字段对齐、浅色主题对比度、移动端布局，均需在实现阶段逐页验收。
+
 ## 可选本机构建容器
 
 deploy/compose.yaml 是本机 MySQL 开发模板，端口只绑定 127.0.0.1；不会自动迁移数据库。
 
 在忽略的 deploy/.env 中提供 MYSQL_PASSWORD 和 MYSQL_ROOT_PASSWORD 后，在 deploy 目录执行：
 
-此开发模板把 MYSQL_PASSWORD 放入连接 URL，因此密码使用随机生成的 URL 安全字符（字母、数字、下划线或连字符）；含 @、:、/ 等字符的凭据不能直接代入该模板，正式配置应分别传值并通过 URL.create 构造。
+模板把密码作为独立环境变量传给应用，不再拼接连接 URL；Compose 的 .env 插值/引号规则仍需遵循，特别是 $ 字符。容器内仅为开发 MySQL 显式关闭 TLS，模板不挂载或连接旧研究源。源库接入时另行提供服务端环境与证书挂载，不直接复用应用账号。
 
 ```sh
 docker compose build
@@ -26,6 +135,26 @@ docker compose up -d
 这组迁移命令仅适用于模板创建的新 research 数据库；现有生产库必须先做基线、备份和迁移评审。开发数据卷会保留；删除卷会丢数据，不在清理命令里自动执行。
 
 当前环境未安装 Docker；本模板尚未实际运行，不能据此宣称 MySQL 兼容或容器部署验收通过。
+
+## 进程生命周期（目标约定，待实施）
+
+以下是加固规格，不是当前脚本已具备的能力。当前本地子进程清理较简易，Worker 尚无 SIGTERM/协作停止及完整退避处理，API 需补初始化失败和异常退出释放路径。
+
+| 进程 | 启动与运行 | 收到停止/发生失败 |
+|---|---|---|
+| 本地 dev | 校验配置与所需工具；API/前端分别建受控进程组，在 try/finally 内逐个启动；监听实际启动结果，不以 Popen 成功当服务就绪 | 任一启动失败或意外退出，停止本次启动的另一进程；返回明确失败码。Ctrl+C 协作停止，最多 10 秒后清理所属进程树；不杀同端口未知进程或其他项目 |
+| API | 校验配置、建立应用连接并检查必要迁移状态；资源按生命周期持有；liveness 表示进程存活，readiness 表示可接流量，研究源可用性另算 | SIGTERM/Ctrl+C 停止接新请求并退出就绪状态，最多 15 秒排空在途请求，再释放连接与日志；异常路径同样释放资源，不在启动/退出时执行迁移 |
+| Worker | 校验配置与应用库；空闲轮询可被停止信号唤醒；配置/缺迁移直接失败退出，临时连接错误有限退避，不伪造任务成功 | 收到停止立即停止领取；短任务最多 30 秒完成，期间须仍持有效租约。结束后释放 session/engine；超过期限不提交假终态，交由租约与恢复规则处理 |
+
+宽限期为首版默认值，配置项在实现时统一加入 Settings。容器 stop_grace_period 须大于内部宽限期并留缓冲，反向代理/HTTP/数据库超时按用途协调。后台计算不占用长 HTTP 请求；不能用延长网关超时代替后台任务。
+
+Worker 临时连接失败首版最多连续重试 3 次（退避 1/2/4 秒，可被停止唤醒），恢复后清零；耗尽后非零退出，由运行环境按有界重启策略处理。任务的 attempts/租约重试与进程连库重试分别计数，不能把进程重启视为一次新研究。日志只留错误分类、重试次数与安全标识。
+
+未来长任务执行器必须支持停止信号、周期续租、产物临时区和原子发布；失去租约立即禁止发布/写入终态。只有确认旧执行已停止，才能主动释放租约供其他 Worker 接管；否则等待租约过期并由 token 阻止旧 Worker 交付。外部计算未停止时不能声称取消完成。
+
+Windows 使用受控进程组的协作退出方式并保留进程树强停兜底；Linux 向本次创建的进程组发停止信号，超时再强停。实现时记录所属 PID/进程组，不按名称广杀；父进程意外消失的清理由部署监督器或受控作业机制承担，不能只依赖 finally。
+
+验收分场景执行一次：正常启动/停止、端口占用、第二个进程启动失败、子进程意外退出、DB 不可用、API 在途请求、Worker 空闲/执行中停止及宽限期耗尽。检查无本次残留进程、退出码正确、资源释放、租约终态未被越权覆盖；不能靠强杀一次就宣称优雅退出完成。
 
 ## 面向独立服务器的发布门槛
 

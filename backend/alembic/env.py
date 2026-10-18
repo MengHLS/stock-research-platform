@@ -2,7 +2,7 @@ from alembic import context
 from sqlalchemy import Connection
 
 from research_platform.core.config import Settings
-from research_platform.core.database import Base, make_engine
+from research_platform.core.database import Base, make_application_engine
 from research_platform.modules.catalog import models as catalog_models  # noqa: F401
 from research_platform.modules.execution import models as execution_models  # noqa: F401
 
@@ -18,7 +18,7 @@ def configure(connection: Connection) -> None:
 
 if context.is_offline_mode():
     context.configure(
-        url=Settings().database_url.get_secret_value(),
+        url=Settings().application_url(),
         target_metadata=target_metadata,
         literal_binds=True,
     )
@@ -29,7 +29,7 @@ else:
     if supplied is not None:
         configure(supplied)
     else:
-        engine = make_engine(Settings().database_url.get_secret_value())
+        engine = make_application_engine(Settings())
         with engine.connect() as connection:
             configure(connection)
         engine.dispose()
