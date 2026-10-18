@@ -11,7 +11,7 @@ import 'element-plus/theme-chalk/el-tag.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
 import { router } from './router'
-import './style.css'
+import './styles/base.css'
 
 createApp(App)
   .use(createPinia())

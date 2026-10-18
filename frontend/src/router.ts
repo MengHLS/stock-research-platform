@@ -1,12 +1,32 @@
+/**
+ * Router instance and the session guard.
+ *
+ * The guard resolves the session once before the first navigation settles.
+ * Guarding on `isResolving` matters: redirecting a signed-in user to /login while
+ * the probe is still in flight is the classic flash-of-login-screen bug.
+ */
 import { createRouter, createWebHistory } from 'vue-router'
-import OverviewPage from './pages/OverviewPage.vue'
-import CatalogPage from './pages/CatalogPage.vue'
+
+import { routes } from './routes'
+import { useSession } from './stores/session'
+
+export { routes }
 
 export const router = createRouter({
   history: createWebHistory(),
-  routes: [
-    { path: '/', component: OverviewPage, meta: { title: '工程概览' } },
-    { path: '/patterns', component: CatalogPage, meta: { title: '模式目录' } },
-    { path: '/:pathMatch(.*)*', redirect: '/' },
-  ],
+  routes,
+})
+
+router.beforeEach(async (to) => {
+  const session = useSession()
+  if (session.isResolving) {
+    await session.refresh()
+  }
+  if (to.meta.public) {
+    return true
+  }
+  if (!session.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  return true
 })

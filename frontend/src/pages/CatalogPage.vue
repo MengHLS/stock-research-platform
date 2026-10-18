@@ -1,13 +1,25 @@
 <script setup lang="ts">
+/**
+ * Private pattern catalog (the prototype's "模式库").
+ *
+ * State handling is deliberate and is the point of this page: loading, empty,
+ * failed and "not signed in" are four different things, and the table never
+ * substitutes sample rows for a failure. Authentication is now real, so the
+ * AUTH_NOT_CONFIGURED branch only appears when the server has no secret configured.
+ */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+
+import AppIcon from '../components/AppIcon'
 import { api, callApi } from '../api/client'
 import { isAuthNotConfigured, type ApiFailure } from '../api/errors'
 import type { components } from '../api/schema'
 
-const rows = ref<components['schemas']['EntryRead'][]>([])
+type Entry = components['schemas']['EntryRead']
+
+const rows = ref<Entry[]>([])
 const loading = ref(false)
 const failure = ref<ApiFailure | null>(null)
-/** 已成功加载过（区分“确实没有记录”和“还没加载成功”）。 */
+/** True once a load succeeded; distinguishes "empty list" from "never loaded". */
 const loaded = ref(false)
 let controller: AbortController | null = null
 
@@ -19,8 +31,9 @@ const state = computed(() => {
 })
 
 /**
- * 列表走 read 策略：15 秒超时、网络错误与 502/503/504 最多重试 1 次。
- * 每次加载先取消上一次请求，卸载时也取消；旧响应不会再覆盖新结果。
+ * List reads use the `read` policy: 15s timeout, one retry on network/502-504.
+ * Each load cancels the previous request so a stale response cannot overwrite a
+ * newer one.
  */
 async function load() {
   controller?.abort()
@@ -43,8 +56,8 @@ async function load() {
     loaded.value = true
     return
   }
-  // 主动取消（重新加载或离开页面）不提示错误，也不清掉已有数据。
-  if (result.failure.kind === 'aborted') return (failure.value = result.failure)
+  if (result.failure.kind === 'aborted') return
+  failure.value = result.failure
   rows.value = []
   loaded.value = false
 }
@@ -62,15 +75,15 @@ function describeFailure(value: ApiFailure): string {
   }
 }
 
-/** 表格空态文案必须和失败/认证状态一致，不能把失败说成“没有记录”。 */
+/** Empty-state text must match the real state; never call a failure "no records". */
 const emptyText = computed(() => {
   switch (state.value) {
     case 'auth':
-      return '登录模块尚未接入，无法判断目录是否为空'
+      return '服务端未配置认证（AUTH_NOT_CONFIGURED），无法判断目录是否为空'
     case 'failed':
       return '加载失败，未展示任何替代数据'
     case 'empty':
-      return '暂无可访问记录'
+      return '暂无记录'
     default:
       return '加载中'
   }
@@ -80,7 +93,7 @@ async function copyRequestId(requestId: string) {
   try {
     await navigator.clipboard.writeText(requestId)
   } catch {
-    // 剪贴板不可用时编号仍然可见，无需额外报错。
+    // Clipboard unavailable: the id is still visible on screen.
   }
 }
 
@@ -90,59 +103,203 @@ onUnmounted(() => controller?.abort())
 
 <template>
   <section class="panel">
-    <div class="panel-title">
+    <div class="panel__head">
       <div>
         <span class="eyebrow">MODULE / CATALOG</span>
-        <h2>模式目录</h2>
+        <h2>模式库</h2>
       </div>
-      <el-button :loading="loading" @click="load">重新加载</el-button>
+      <button type="button" class="btn" :disabled="loading" @click="load">
+        <AppIcon name="refresh" :size="15" />
+        {{ loading ? '加载中…' : '重新加载' }}
+      </button>
     </div>
-    <p>这条接口已实现服务端个人范围过滤；认证接入前会拒绝访问，不回退为共享演示列表。</p>
 
-    <el-alert
-      v-if="state === 'auth'"
-      title="登录模块尚未接入（AUTH_NOT_CONFIGURED），暂时无法读取私人目录。"
-      type="warning"
-      :closable="false"
-      show-icon
-    />
-    <el-alert
-      v-else-if="state === 'failed' && failure"
-      :title="describeFailure(failure)"
-      type="error"
-      :closable="false"
-      show-icon
-    >
-      <p class="request-id">
-        <template v-if="failure.requestId">
-          请求编号 request_id：<code>{{ failure.requestId }}</code>
-          <el-button size="small" text @click="copyRequestId(failure.requestId)">复制</el-button>
-        </template>
-        <template v-else>本次失败没有收到 request_id。</template>
+    <p class="lede">
+      服务端按登录用户过滤；不同账号只能看到各自的目录记录，越权 ID 与不存在 ID 一样返回 404。
+    </p>
+
+    <div v-if="state === 'auth'" class="banner banner--warn" role="status">
+      服务端未配置认证（<code>AUTH_NOT_CONFIGURED</code>），暂时无法读取私人目录。
+    </div>
+    <div v-else-if="state === 'failed' && failure" class="banner banner--error" role="alert">
+      <strong>{{ describeFailure(failure) }}</strong>
+      <p v-if="failure.requestId">
+        请求编号 <code>{{ failure.requestId }}</code>
+        <button type="button" class="btn btn--tiny" @click="copyRequestId(failure.requestId)">
+          复制
+        </button>
       </p>
-    </el-alert>
-    <el-alert
-      v-else-if="state === 'empty'"
-      title="暂无可访问记录：请求成功，但当前账号范围内没有目录记录。"
-      type="info"
-      :closable="false"
-      show-icon
-    />
+      <p v-else>本次失败没有收到 request_id。</p>
+    </div>
+    <div v-else-if="state === 'empty'" class="banner banner--info" role="status">
+      请求成功，但当前账号范围内没有目录记录。
+    </div>
 
-    <el-table v-loading="loading" :data="rows" :empty-text="emptyText">
-      <el-table-column prop="name" label="模式名称" min-width="180" />
-      <el-table-column prop="description" label="描述" min-width="240" />
-      <el-table-column prop="row_version" label="版本" width="100" />
-    </el-table>
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">模式名称</th>
+          <th scope="col">描述</th>
+          <th scope="col" class="table__num">版本</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="row in rows" :key="row.id">
+          <td>{{ row.name }}</td>
+          <td class="table__desc">{{ row.description || '—' }}</td>
+          <td class="table__num num">{{ row.row_version }}</td>
+        </tr>
+        <tr v-if="rows.length === 0">
+          <td colspan="3" class="table__empty">{{ emptyText }}</td>
+        </tr>
+      </tbody>
+    </table>
   </section>
 </template>
 
 <style scoped>
-.request-id {
-  margin: 8px 0 0;
-  font-size: 12px;
+.panel {
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
-.request-id code {
+
+.panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+h2 {
+  margin: 8px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.lede {
+  margin: 10px 0 16px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--fg2);
+  max-width: 720px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--fg2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--border2);
+  background: var(--surface3);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.btn--tiny {
+  padding: 1px 6px;
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.banner {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.banner p {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.banner code {
+  font-family: var(--mono);
   user-select: all;
+}
+
+.banner--warn {
+  background: color-mix(in oklab, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 32%, transparent);
+  color: var(--warn);
+}
+
+.banner--error {
+  background: color-mix(in oklab, var(--up) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--up) 32%, transparent);
+}
+
+.banner--error strong {
+  color: var(--up);
+}
+
+.banner--info {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--fg2);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--grid);
+  color: var(--fg2);
+  vertical-align: top;
+}
+
+.table tbody tr:hover td {
+  background: var(--surface2);
+}
+
+.table__num {
+  text-align: right;
+  width: 80px;
+}
+
+.table__desc {
+  color: var(--muted);
+}
+
+.table__empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 24px 10px;
 }
 </style>

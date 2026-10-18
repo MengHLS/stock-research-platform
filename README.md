@@ -58,10 +58,21 @@ uv run python tools/project.py hygiene        # 文档、脚本及产物存放�
 
 命令的权威定义是 `tools/project.py --help`；不要为每个任务复制一份脚本。完整检查包括后端规范与测试、接口契约漂移、前端规范与测试、类型检查和构建。
 
+## 前端框架
+
+前端已按设计原型搭好壳层与路由：左侧分组导航（14 个已实现入口 + 9 个待开发入口）、顶栏（页面标题、会话状态、主题切换、账号菜单）、登录/注册页，以及深浅两套主题 token。
+
+```sh
+pnpm --dir frontend run dev      # 前端 http://127.0.0.1:5173
+uv run python tools/project.py dev  # 前后端一起（API 8000）
+```
+
+未实现页面显示“待开发”并说明等待的模块，不填充示例数据。设计来源与原型的读取方式见[运维“前端原型”](docs/runbook.md)。
+
 ## 目录
 
 ```text
-frontend/src/                         Vue 页面、组件、api、stores
+frontend/src/                         Vue 页面、组件、api、stores、navigation、styles
 backend/src/research_platform/
   core/                               配置、数据库、公共错误、脱敏日志、超时/重试策略
   modules/identity/                   身份 Interface，默认拒绝
