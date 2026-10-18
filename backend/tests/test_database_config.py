@@ -149,3 +149,48 @@ def test_explicit_local_tls_disable_and_invalid_application_url():
         Settings(database_url="not-a-url-with-private-password", _env_file=None)
     with pytest.raises(ValidationError, match="driver must"):
         Settings(database_url="postgresql://localhost/db", _env_file=None)
+
+
+def test_auth_config_requires_a_long_secret():
+    with pytest.raises(ValidationError):
+        Settings(auth={"secret": "too-short"}, _env_file=None)
+    settings = Settings(auth={"secret": "x" * 48}, _env_file=None)
+    assert settings.auth is not None
+    assert "x" * 48 not in repr(settings)
+
+
+def test_production_requires_auth_and_secure_cookies():
+    from research_platform.main import create_app
+
+    with pytest.raises(RuntimeError, match="configure RP_AUTH__SECRET"):
+        create_app(Settings(environment="production", database_url="sqlite://", _env_file=None))
+    with pytest.raises(RuntimeError, match="COOKIE_SECURE"):
+        create_app(
+            Settings(
+                environment="production",
+                database_url="sqlite://",
+                auth={"secret": "y" * 48, "cookie_secure": False},
+                _env_file=None,
+            )
+        )
+
+
+def test_object_storage_endpoint_and_secrets():
+    storage = Settings(
+        object_storage={
+            "endpoint": "minio.local",
+            "port": 9000,
+            "access_key": "access-value",
+            "secret_key": "secret-value",
+        },
+        _env_file=None,
+    ).object_storage
+    assert storage is not None
+    assert storage.endpoint_url() == "http://minio.local:9000"
+    assert "secret-value" not in repr(storage)
+
+
+def test_development_start_does_not_require_auth():
+    from research_platform.main import create_app
+
+    assert create_app(Settings(environment="test", database_url="sqlite://", _env_file=None))

@@ -83,6 +83,52 @@ class TushareConfig(BaseModel):
     url: str = Field(default="https://api.tushare.pro", min_length=1, max_length=200)
 
 
+class ObjectStorageConfig(BaseModel):
+    """S3-compatible artifact storage (MinIO in development).
+
+    Ported from the legacy project, which stored run artifacts there and refused
+    to pretend a run succeeded when the store was unreachable. The bucket must
+    already exist: creating it is a deployment step, not an API side effect.
+    """
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    endpoint: str = Field(min_length=1, max_length=200)
+    port: int = Field(default=9000, ge=1, le=65535)
+    use_ssl: bool = False
+    bucket: str = Field(default="research", min_length=1, max_length=63)
+    access_key: SecretStr = Field(min_length=1)
+    secret_key: SecretStr = Field(min_length=1)
+    region: str = Field(default="us-east-1", min_length=1, max_length=64)
+
+    def endpoint_url(self) -> str:
+        scheme = "https" if self.use_ssl else "http"
+        return f"{scheme}://{self.endpoint}:{self.port}"
+
+
+class AuthConfig(BaseModel):
+    """Session and password policy for the built-in registration/login.
+
+    ``secret`` signs session tokens; it must be long and random. The remaining
+    fields bound abuse (lockout) and token lifetime instead of trusting defaults
+    scattered across call sites.
+    """
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    secret: SecretStr = Field(min_length=32)
+    session_ttl_hours: int = Field(default=168, ge=1, le=24 * 30)
+    session_cookie: str = Field(default="rp_session", min_length=1, max_length=64)
+    cookie_secure: bool = True
+    max_failed_logins: int = Field(default=5, ge=1, le=100)
+    lockout_minutes: int = Field(default=15, ge=1, le=24 * 60)
+    min_password_length: int = Field(default=10, ge=8, le=128)
+    # Registration is closed by default: an open endpoint on an unauthenticated
+    # deployment would let anyone create an account.
+    allow_registration: bool = True
+    bootstrap_admin_email: str | None = None
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RP_",
@@ -100,6 +146,8 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     upstream: UpstreamConfig = UpstreamConfig()
     tushare: TushareConfig | None = None
+    object_storage: ObjectStorageConfig | None = None
+    auth: AuthConfig | None = None
 
     @model_validator(mode="after")
     def validate_database_roles(self) -> Self:
@@ -130,8 +178,19 @@ class Settings(BaseSettings):
         return self.database_url.get_secret_value()
 
     def require_development_release(self) -> None:
-        if self.environment == "production":
+        """Fail fast on a production start that is not actually ready.
+
+        Authentication now exists, so the previous blanket block is replaced by
+        concrete prerequisites: without a signing secret there is no way to issue
+        a session, and a production deployment that cannot authenticate would
+        serve a login page it can never satisfy. TLS-only cookies are enforced in
+        production so a session token is never sent over plain HTTP.
+        """
+        if self.environment != "production":
+            return
+        if self.auth is None:
             raise RuntimeError(
-                "Production is blocked: implement real authentication, resource authorization "
-                "and deployment acceptance before releasing this starter."
+                "Production is blocked: configure RP_AUTH__SECRET to enable authentication."
             )
+        if not self.auth.cookie_secure:
+            raise RuntimeError("Production requires RP_AUTH__COOKIE_SECURE=true")
