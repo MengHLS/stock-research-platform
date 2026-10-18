@@ -62,6 +62,18 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
     "REGISTRATION_CLOSED": ErrorSpec(
         "REGISTRATION_CLOSED", 403, ErrorCategory.AUTHORIZATION, "当前不允许自助注册。"
     ),
+    "INVITATION_CODE_REQUIRED": ErrorSpec(
+        "INVITATION_CODE_REQUIRED", 403, ErrorCategory.AUTHORIZATION, "注册需要邀请码。"
+    ),
+    "INVITATION_CODE_INVALID": ErrorSpec(
+        "INVITATION_CODE_INVALID", 403, ErrorCategory.AUTHORIZATION, "邀请码无效。"
+    ),
+    "INVITATION_CODE_EXPIRED": ErrorSpec(
+        "INVITATION_CODE_EXPIRED", 403, ErrorCategory.AUTHORIZATION, "邀请码已过期。"
+    ),
+    "INVITATION_CODE_ALREADY_USED": ErrorSpec(
+        "INVITATION_CODE_ALREADY_USED", 403, ErrorCategory.AUTHORIZATION, "邀请码已被使用。"
+    ),
     "PASSWORD_TOO_WEAK": ErrorSpec(
         "PASSWORD_TOO_WEAK", 422, ErrorCategory.VALIDATION, "密码强度不足。"
     ),

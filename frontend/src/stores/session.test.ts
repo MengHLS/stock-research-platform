@@ -140,6 +140,20 @@ describe('session store', () => {
     expect(session.user).toBeNull()
   })
 
+  it('sends the invitation code when registering', async () => {
+    queue.push(ok({ user, expires_at: '2026-10-25T00:00:00Z' }))
+    queue.push(ok({ user, expires_at: '2026-10-25T00:00:00Z' }))
+    const session = useSession()
+    const error = await session.register(
+      'invited@example.com',
+      'a-long-password',
+      '受邀用户',
+      'rp_test-code',
+    )
+    expect(error).toBeNull()
+    expect(session.isAuthenticated).toBe(true)
+  })
+
   it('expire() drops the signed-in state when any request answers 401', () => {
     const session = useSession()
     session.$patch({ status: 'authenticated', user })

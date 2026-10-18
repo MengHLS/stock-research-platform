@@ -22,6 +22,7 @@ const mode = ref<'login' | 'register'>('login')
 const email = ref('')
 const password = ref('')
 const displayName = ref('')
+const invitationCode = ref('')
 const localError = ref<string | null>(null)
 
 const isRegister = computed(() => mode.value === 'register')
@@ -41,8 +42,17 @@ async function submit() {
     localError.value = '请填写邮箱和密码。'
     return
   }
+  if (isRegister.value && !invitationCode.value.trim()) {
+    localError.value = '请输入邀请码。没有邀请码请联系管理员。'
+    return
+  }
   const error = isRegister.value
-    ? await session.register(email.value.trim(), password.value, displayName.value.trim())
+    ? await session.register(
+        email.value.trim(),
+        password.value,
+        displayName.value.trim(),
+        invitationCode.value,
+      )
     : await session.login(email.value.trim(), password.value)
   if (error) {
     localError.value = error
@@ -112,6 +122,19 @@ async function submit() {
         />
       </label>
 
+      <label v-if="isRegister" class="login__field">
+        <span>邀请码</span>
+        <input
+          v-model="invitationCode"
+          type="text"
+          autocomplete="off"
+          required
+          maxlength="80"
+          placeholder="rp_xxxxxxxxxxx"
+        />
+        <small>注册需要管理员发放的邀请码，每个邀请码只能使用一次。</small>
+      </label>
+
       <label class="login__field">
         <span>密码</span>
         <input
@@ -131,9 +154,7 @@ async function submit() {
         {{ session.busy ? '处理中…' : submitLabel }}
       </button>
 
-      <p class="login__hint">
-        账号保存在本平台数据库中；未配置服务端认证时，此页面会提示认证未启用。
-      </p>
+      <p class="login__hint">注册需要邀请码：本平台只面向少量受邀用户，账号由管理员审核后发放。</p>
     </form>
   </div>
 </template>

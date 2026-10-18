@@ -16,6 +16,9 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(default="", max_length=120)
+    # Required only when the server runs in "invite" mode; ignored otherwise so a
+    # client can always send it.
+    invitation_code: str | None = Field(default=None, max_length=80)
 
 
 class LoginRequest(BaseModel):

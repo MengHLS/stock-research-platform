@@ -31,7 +31,7 @@ def signed_in(response) -> bool:
 
 
 def auth_settings(database_url, **auth_overrides):
-    auth = {"secret": SECRET, "cookie_secure": False, "allow_registration": True}
+    auth = {"secret": SECRET, "cookie_secure": False, "registration": "open"}
     auth.update(auth_overrides)
     return Settings(environment="test", database_url=database_url, auth=auth, _env_file=None)
 
@@ -114,7 +114,7 @@ def test_email_is_normalized_so_case_does_not_create_duplicates(auth_client_fact
 
 
 def test_registration_can_be_closed(auth_client_factory):
-    client = auth_client_factory(allow_registration=False)
+    client = auth_client_factory(registration="closed")
     response = client.post(
         "/api/v1/auth/register", json={"email": "x@example.com", "password": "a-long-password"}
     )
@@ -356,7 +356,7 @@ def test_service_rejects_login_when_locked_even_with_correct_password(session, d
     """Lockout is enforced in the service, not only by the HTTP layer."""
     from research_platform.core.config import AuthConfig
 
-    config = AuthConfig(secret=SECRET, max_failed_logins=1, lockout_minutes=15)
+    config = AuthConfig(secret=SECRET, max_failed_logins=1, lockout_minutes=15, registration="open")
     service.register(session, config, email="svc@example.com", password="a-long-password")
     from research_platform.core.errors import DomainError
 
@@ -412,3 +412,216 @@ def test_password_change_clears_the_cookie_too(auth_client_factory):
     )
     assert response.status_code == 204
     assert "Max-Age=0" in response.headers.get("set-cookie", "")
+
+
+# --- invitation codes -----------------------------------------------------
+
+
+def invite_client_factory(database_url):
+    from fastapi.testclient import TestClient
+
+    app = create_app(auth_settings(database_url, registration="invite"))
+    client = TestClient(app)
+    client.__enter__()
+    return client
+
+
+def issue_code(database_url, label="test"):
+    from research_platform.modules.identity import invitations
+
+    settings = auth_settings(database_url, registration="invite")
+    from sqlalchemy.orm import Session
+
+    from research_platform.core.database import make_engine
+
+    engine = make_engine(database_url)
+    try:
+        with Session(engine) as session:
+            code, _ = invitations.issue(session, settings.auth, label=label)
+            return code
+    finally:
+        engine.dispose()
+
+
+def test_invite_mode_requires_a_code(database_url):
+    client = invite_client_factory(database_url)
+    try:
+        response = client.post(
+            "/api/v1/auth/register",
+            json={"email": "no-code@example.com", "password": "a-long-password"},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "INVITATION_CODE_REQUIRED"
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_valid_code_registers_and_is_spent(database_url):
+    code = issue_code(database_url)
+    client = invite_client_factory(database_url)
+    try:
+        first = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "invited@example.com",
+                "password": "a-long-password",
+                "invitation_code": code,
+            },
+        )
+        assert first.status_code == 201
+        assert first.json()["user"]["email"] == "invited@example.com"
+        client.post("/api/v1/auth/logout")
+        # The same code must not admit a second account.
+        again = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "second@example.com",
+                "password": "a-long-password",
+                "invitation_code": code,
+            },
+        )
+        assert again.status_code == 403
+        assert again.json()["detail"]["code"] == "INVITATION_CODE_ALREADY_USED"
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_unknown_code_is_refused(database_url):
+    client = invite_client_factory(database_url)
+    try:
+        response = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "bad@example.com",
+                "password": "a-long-password",
+                "invitation_code": "rp_this-code-does-not-exist",
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "INVITATION_CODE_INVALID"
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_expired_code_is_refused(database_url, session):
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from research_platform.modules.identity import invitations
+    from research_platform.modules.identity.models import InvitationCode, utc_now
+
+    settings = auth_settings(database_url, registration="invite")
+    code, _ = invitations.issue(session, settings.auth, label="expired")
+    row = session.scalar(select(InvitationCode).where(InvitationCode.label == "expired"))
+    row.expires_at = utc_now() - timedelta(minutes=1)
+    session.commit()
+
+    client = invite_client_factory(database_url)
+    try:
+        response = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "late@example.com",
+                "password": "a-long-password",
+                "invitation_code": code,
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "INVITATION_CODE_EXPIRED"
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_revoked_code_is_refused(database_url, session):
+
+    from research_platform.modules.identity import invitations
+
+    settings = auth_settings(database_url, registration="invite")
+    code, row = invitations.issue(session, settings.auth, label="revoked")
+    invitations.revoke(session, row.id)
+
+    client = invite_client_factory(database_url)
+    try:
+        response = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "revoked@example.com",
+                "password": "a-long-password",
+                "invitation_code": code,
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "INVITATION_CODE_INVALID"
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_code_is_stored_hashed_not_in_plaintext(database_url, session):
+    from sqlalchemy import select
+
+    from research_platform.modules.identity import invitations
+    from research_platform.modules.identity.models import InvitationCode
+
+    settings = auth_settings(database_url, registration="invite")
+    code, _ = invitations.issue(session, settings.auth, label="hashed")
+    rows = session.scalars(select(InvitationCode)).all()
+    stored = {row.code_hash for row in rows}
+    assert code not in stored
+    # The hash is what the lookup uses, so issuing twice yields different codes.
+    other, _ = invitations.issue(session, settings.auth, label="hashed2")
+    assert other != code
+
+
+def test_duplicate_email_does_not_consume_the_code(database_url):
+    """A failed registration must not burn the operator's approval."""
+    code = issue_code(database_url)
+    client = invite_client_factory(database_url)
+    try:
+        first = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "same@example.com",
+                "password": "a-long-password",
+                "invitation_code": code,
+            },
+        )
+        assert first.status_code == 201
+        second_code = issue_code(database_url, label="second")
+        client.post("/api/v1/auth/logout")
+        duplicate = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "same@example.com",
+                "password": "a-long-password",
+                "invitation_code": second_code,
+            },
+        )
+        assert duplicate.status_code == 409
+        assert duplicate.json()["detail"]["code"] == "EMAIL_ALREADY_REGISTERED"
+        # The second code is still usable for a different address.
+        retry = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "different@example.com",
+                "password": "a-long-password",
+                "invitation_code": second_code,
+            },
+        )
+        assert retry.status_code == 201
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_closed_mode_rejects_all_registration(database_url):
+    from fastapi.testclient import TestClient
+
+    app = create_app(auth_settings(database_url, registration="closed"))
+    client = TestClient(app)
+    with client:
+        response = client.post(
+            "/api/v1/auth/register",
+            json={"email": "closed@example.com", "password": "a-long-password"},
+        )
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "REGISTRATION_CLOSED"

@@ -74,13 +74,21 @@ export const useSession = defineStore('session', () => {
     email: string,
     password: string,
     displayName: string,
+    invitationCode: string,
   ): Promise<string | null> {
     busy.value = true
     error.value = null
     try {
       const result = await callApi((signal) =>
         api.POST('/api/v1/auth/register', {
-          body: { email, password, display_name: displayName },
+          body: {
+            email,
+            password,
+            display_name: displayName,
+            // Sent as null when blank so the server treats it as "not provided"
+            // rather than an empty string that fails code lookup.
+            invitation_code: invitationCode.trim() || null,
+          },
           signal,
         }),
       )

@@ -101,3 +101,34 @@ class LoginAttempt(Base):
     succeeded: Mapped[bool] = mapped_column(Boolean, nullable=False)
     reason: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class InvitationCode(Base):
+    """A single-use registration code.
+
+    The code is the gate for self-registration when the operator wants to vet
+    every account: knowing a valid code *is* the approval, so no separate review
+    state is needed for one or two users.
+
+    Only a hash of the code is stored, for the same reason as session tokens: a
+    database leak must not yield working codes. ``used_by_user_id`` records who
+    consumed it, so an operator can see which account a code produced.
+    """
+
+    __tablename__ = "invitation_code"
+    __table_args__ = (
+        Index("ix_invitation_code_hash", "code_hash", unique=True),
+        Index("ix_invitation_code_state", "used_at", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # A short, non-secret label so the operator can tell codes apart in a list.
+    label: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    used_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("user_account.id", ondelete="SET NULL")
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)

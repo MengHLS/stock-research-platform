@@ -709,6 +709,8 @@ export interface components {
              * @default
              */
             display_name: string;
+            /** Invitation Code */
+            invitation_code?: string | null;
         };
         /**
          * SessionRead

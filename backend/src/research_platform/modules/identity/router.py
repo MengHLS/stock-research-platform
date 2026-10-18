@@ -78,6 +78,7 @@ def register(data: RegisterRequest, request: Request, response: Response, sessio
         email=str(data.email),
         password=data.password,
         display_name=data.display_name,
+        invitation_code=data.invitation_code,
     )
     account, token, expires_at = service.login(
         session,

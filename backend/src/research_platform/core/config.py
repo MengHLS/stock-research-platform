@@ -123,10 +123,13 @@ class AuthConfig(BaseModel):
     max_failed_logins: int = Field(default=5, ge=1, le=100)
     lockout_minutes: int = Field(default=15, ge=1, le=24 * 60)
     min_password_length: int = Field(default=10, ge=8, le=128)
-    # Registration is closed by default: an open endpoint on an unauthenticated
-    # deployment would let anyone create an account.
-    allow_registration: bool = True
-    bootstrap_admin_email: str | None = None
+    # Three registration modes, from most to least open:
+    #   open   — anyone may register (only for a trusted, private deployment);
+    #   invite — a valid invitation code is required (the default: one or two
+    #            users, each account approved in person);
+    #   closed — no self-registration at all; accounts are created from the CLI.
+    registration: Literal["open", "invite", "closed"] = "invite"
+    invitation_ttl_hours: int = Field(default=24 * 14, ge=1, le=24 * 365)
 
 
 class Settings(BaseSettings):

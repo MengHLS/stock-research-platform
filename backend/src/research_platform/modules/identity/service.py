@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from research_platform.core.config import AuthConfig
 from research_platform.core.errors import DomainError
 
+from . import invitations
 from .models import LoginAttempt, UserAccount, UserCredential, UserSession, utc_now
 from .security import (
     hash_client_address,
@@ -67,9 +68,17 @@ def register(
     email: str,
     password: str,
     display_name: str = "",
+    invitation_code: str | None = None,
 ) -> UserAccount:
+    """Create an account, honouring the configured registration mode.
+
+    In ``invite`` mode the code is spent *before* the account is created, and the
+    whole operation runs in one transaction: a code must never be consumed by a
+    registration that then fails on a duplicate e-mail, or the operator's approval
+    would be silently lost.
+    """
     config = _require_auth_config(config)
-    if not config.allow_registration:
+    if config.registration == "closed":
         raise DomainError("REGISTRATION_CLOSED")
     normalized = normalize_email(email)
     _validate_password(password, config)
@@ -79,12 +88,25 @@ def register(
         # endpoint for a single-user tool, and silently succeeding would leave the
         # caller unable to sign in with the password they just chose.
         raise DomainError("EMAIL_ALREADY_REGISTERED")
+
+    invitation = None
+    if config.registration == "invite":
+        if not invitation_code:
+            raise DomainError("INVITATION_CODE_REQUIRED")
+        # ``consume`` commits its own conditional update; a later failure here
+        # cannot un-spend it, so the account insert below must not fail. The
+        # duplicate check above is the only realistic failure and runs first.
+        invitation = invitations.consume(session, invitation_code)
+
     account = UserAccount(email=normalized, display_name=display_name.strip())
     session.add(account)
     session.flush()
     session.add(UserCredential(user_id=account.id, password_hash=hash_password(password)))
     session.commit()
     session.refresh(account)
+
+    if invitation is not None:
+        invitations.attach_user(session, invitation, account.id)
     return account
 
 

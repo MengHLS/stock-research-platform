@@ -111,19 +111,34 @@ python -c "import secrets;print(secrets.token_urlsafe(48))"   # 生成后填入 
 
 | 接口 | 说明 |
 |---|---|
-| `POST /api/v1/auth/register` | 注册并自动登录；`RP_AUTH__ALLOW_REGISTRATION=false` 时关闭 |
+| `POST /api/v1/auth/register` | 注册并自动登录；`invite` 模式需带 `invitation_code` |
 | `POST /api/v1/auth/login` | 登录，写入 HttpOnly 会话 cookie |
 | `POST /api/v1/auth/logout` | 服务端撤销会话并清 cookie（`Max-Age=0`） |
 | `GET /api/v1/auth/session` | 当前登录用户；未登录返回 **204 无正文**（不是 200 空对象） |
 | `POST /api/v1/auth/password` | 修改密码，撤销该用户全部会话并清 cookie |
 
-前端契约：任何接口返回 401 时，请求层统一通知会话 store 并跳回登录页；未登录探测返回 204，前端据此区分“已询问且未登录”和“尚未询问”。
+前端契约：任何接口 401 时请求层统一通知会话 store 并跳回登录页；未登录探测返回 204，前端据此区分“已询问且未登录”和“尚未询问”。
 
-安全语义：密码用标准库 `scrypt`（参数随哈希编码，可后续升级）；数据库只存**会话令牌的 SHA-256**，泄露库也无法重放；登录失败与账号不存在返回同一错误码，不泄露邮箱是否已注册；连续失败达 `RP_AUTH__MAX_FAILED_LOGINS` 后锁定 `RP_AUTH__LOCKOUT_MINUTES` 分钟；cookie 为 `HttpOnly` + `SameSite=Lax`，生产强制 `Secure`（未设置则启动失败）。
+安全语义：密码用标准库 `scrypt`（参数随哈希编码可升级）；库中只存**会话令牌的 SHA-256**，泄露库也无法重放；登录失败与账号不存在同码，不泄露邮箱是否注册；连续失败达 `RP_AUTH__MAX_FAILED_LOGINS` 后锁定；cookie 为 `HttpOnly` + `SameSite=Lax`，生产强制 `Secure`。生产启动按凭据阻断：缺 `RP_AUTH__SECRET` 或 `COOKIE_SECURE=false` 时报错退出。
 
-生产启动不再一律阻断：缺少 `RP_AUTH__SECRET` 或 `COOKIE_SECURE=false` 时明确报错退出。
+### 邀请码注册（少量用户的审核方式）
 
-未实现：邮箱验证、密码重置、多因素、SSO、审计查询界面。旧项目的 OAuth（Manus 平台）未沿用，其 `users` 表只存 openId，无法迁移密码。
+前期只有一两个用户，用邀请码代替人工审核流程：拿到有效邀请码即视为已批准，注册后直接可用，不需要再改账号状态。
+
+```sh
+# 发码（明文只显示这一次，数据库只存哈希）
+uv run python tools/project.py identity --identity-action invite-create --label "张三"
+# 查看所有码及状态（usable / spent / revoked）
+uv run python tools/project.py identity --identity-action invite-list
+# 作废未使用的码
+uv run python tools/project.py identity --identity-action invite-revoke --code-id <id>
+```
+
+模式用 `RP_AUTH__REGISTRATION` 切换：`invite`（默认）/ `closed`（只能命令行建号）/ `open`（仅限私有可信部署）。命令行账号管理：`identity --identity-action user-create|user-list|user-disable|user-reset-password`，参数见 `tools/project.py --help`。
+
+邀请码语义：单次使用、可设有效期（默认 14 天）、只存哈希；注册失败（如邮箱已存在）**不会**消耗邀请码；停用账号会同时撤销其全部会话。
+
+未实现：邮箱验证、密码重置邮件、多因素、SSO、审计查询界面。旧项目的 OAuth（Manus 平台）未沿用，其 `users` 表只存 openId，无法迁移密码。
 
 ## 前端原型（Open Design）
 

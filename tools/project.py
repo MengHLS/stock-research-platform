@@ -313,6 +313,169 @@ def prototype(action: str = "list", destination: str | None = None) -> None:
     print(f"entries : {implemented} implemented, {total - implemented} planned")
 
 
+# --- identity administration ------------------------------------------------
+# No admin web UI: for one or two users the operator issues an invitation code (or
+# creates the account) from here. Only non-secret outcomes are printed; a new
+# invitation code is shown exactly once because only its hash is stored.
+
+
+def _identity_session():
+    from sqlalchemy.orm import Session
+
+    from research_platform.core.config import Settings
+    from research_platform.core.database import make_application_engine
+
+    settings = Settings()
+    if settings.auth is None:
+        raise SystemExit("Authentication is not configured: set RP_AUTH__SECRET (>=32 chars)")
+    return Session(make_application_engine(settings)), settings
+
+
+def _require_migrated(session) -> None:
+    from sqlalchemy import text
+
+    try:
+        session.execute(text("SELECT id FROM user_account LIMIT 1"))
+    except Exception:
+        raise SystemExit(
+            "Database is not migrated: run `uv run python tools/project.py migrate-local`"
+        ) from None
+
+
+def identity_admin(action: str, options: dict) -> None:
+    from sqlalchemy import select, update
+
+    from research_platform.modules.identity import invitations, service
+    from research_platform.modules.identity.models import (
+        UserAccount,
+        UserCredential,
+        UserSession,
+        utc_now,
+    )
+    from research_platform.modules.identity.security import hash_password
+
+    session, settings = _identity_session()
+    try:
+        _require_migrated(session)
+
+        def account_for(email: str):
+            account = session.scalar(
+                select(UserAccount).where(UserAccount.email == service.normalize_email(email))
+            )
+            if account is None:
+                raise SystemExit(f"No such account: {email}")
+            return account
+
+        def revoke_sessions(user_id: int) -> None:
+            session.execute(
+                update(UserSession)
+                .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+                .values(revoked_at=utc_now())
+            )
+
+        if action == "user-create":
+            email = service.normalize_email(options["email"])
+            if session.scalar(select(UserAccount).where(UserAccount.email == email)):
+                raise SystemExit(f"Account already exists: {email}")
+            if len(options["password"]) < settings.auth.min_password_length:
+                raise SystemExit("Password is shorter than RP_AUTH__MIN_PASSWORD_LENGTH")
+            account = UserAccount(
+                email=email,
+                display_name=options.get("display_name", "").strip(),
+                role=options.get("role", "user"),
+            )
+            session.add(account)
+            session.flush()
+            session.add(
+                UserCredential(user_id=account.id, password_hash=hash_password(options["password"]))
+            )
+            session.commit()
+            print(json.dumps({"created": email, "id": account.id, "role": account.role}))
+        elif action == "user-list":
+            rows = session.scalars(select(UserAccount).order_by(UserAccount.id)).all()
+            if not rows:
+                print("No accounts yet.")
+            else:
+                print(f"{'id':>4}  {'email':32}  {'role':6}  {'active':6}  last signed in")
+                for row in rows:
+                    last = (
+                        row.last_signed_in_at.isoformat(timespec="seconds")
+                        if row.last_signed_in_at
+                        else "-"
+                    )
+                    print(
+                        f"{row.id:>4}  {row.email:32}  {row.role:6}  {str(row.is_active):6}  {last}"
+                    )
+        elif action == "user-disable":
+            account = account_for(options["email"])
+            account.is_active = False
+            revoke_sessions(account.id)
+            session.commit()
+            print(json.dumps({"disabled": account.email, "sessions_revoked": True}))
+        elif action == "user-reset-password":
+            account = account_for(options["email"])
+            credential = session.scalar(
+                select(UserCredential).where(UserCredential.user_id == account.id)
+            )
+            if credential is None:
+                raise SystemExit(f"No credential row for {account.email}")
+            if len(options["password"]) < settings.auth.min_password_length:
+                raise SystemExit("Password is shorter than RP_AUTH__MIN_PASSWORD_LENGTH")
+            credential.password_hash = hash_password(options["password"])
+            credential.password_updated_at = utc_now()
+            credential.failed_attempts = 0
+            credential.locked_until = None
+            revoke_sessions(account.id)
+            session.commit()
+            print(json.dumps({"password_reset": account.email, "sessions_revoked": True}))
+        elif action == "invite-create":
+            code, row = invitations.issue(
+                session,
+                settings.auth,
+                label=options.get("label", ""),
+                ttl_hours=options.get("ttl_hours"),
+            )
+            print(
+                json.dumps(
+                    {
+                        "code": code,
+                        "id": row.id,
+                        "label": row.label,
+                        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+                    }
+                )
+            )
+            print("上面是唯一一次显示明文邀请码；数据库只保存哈希。")
+        elif action == "invite-list":
+            rows = invitations.list_codes(session)
+            if not rows:
+                print("No invitation codes.")
+            else:
+                now = utc_now()
+                print(f"{'id':36}  {'label':20}  {'state':12}  created")
+                for row in rows:
+                    state = "usable" if invitations.is_usable(row, now) else "spent/expired"
+                    if row.revoked_at is not None:
+                        state = "revoked"
+                    print(
+                        f"{row.id:36}  {row.label[:20]:20}  {state:12}  "
+                        f"{row.created_at.isoformat(timespec='seconds')}"
+                    )
+        elif action == "invite-revoke":
+            invitations.revoke(session, options["code_id"])
+            print(json.dumps({"revoked": options["code_id"]}))
+        else:
+            raise SystemExit(f"unknown identity action: {action}")
+    except Exception as error:  # noqa: BLE001 - surface the code, never a traceback
+        from research_platform.core.errors import DomainError
+
+        if isinstance(error, DomainError):
+            raise SystemExit(f"{error.code}: {error.message}") from None
+        raise
+    finally:
+        session.close()
+
+
 def market_check() -> None:
     """Read-only probe of the public market sources; never writes, never prints secrets.
 
@@ -374,6 +537,7 @@ def main() -> None:
             "db-check",
             "market-check",
             "prototype",
+            "identity",
         ],
     )
     parser.add_argument("--target", choices=["app", "source"], default="app")
@@ -384,6 +548,27 @@ def main() -> None:
         help="prototype: list navigation, dump shape JSON, or copy the HTML",
     )
     parser.add_argument("--to", metavar="PATH", help="prototype copy: destination path")
+    parser.add_argument(
+        "--identity-action",
+        dest="identity_action",
+        choices=[
+            "user-create",
+            "user-list",
+            "user-disable",
+            "user-reset-password",
+            "invite-create",
+            "invite-list",
+            "invite-revoke",
+        ],
+        help="identity administration action",
+    )
+    parser.add_argument("--email")
+    parser.add_argument("--password")
+    parser.add_argument("--display-name", default="")
+    parser.add_argument("--role", default="user", choices=["user", "admin"])
+    parser.add_argument("--label", default="")
+    parser.add_argument("--ttl-hours", type=int)
+    parser.add_argument("--code-id")
     args = parser.parse_args()
     os.chdir(ROOT)
     if args.task in ("db-config", "db-check"):
@@ -402,6 +587,21 @@ def main() -> None:
         market_check()
     elif args.task == "prototype":
         prototype(args.action, args.to)
+    elif args.task == "identity":
+        if not args.identity_action:
+            raise SystemExit("identity needs --identity-action; run --help")
+        identity_admin(
+            args.identity_action,
+            {
+                "email": args.email,
+                "password": args.password,
+                "display_name": args.display_name,
+                "role": args.role,
+                "label": args.label,
+                "ttl_hours": args.ttl_hours,
+                "code_id": args.code_id,
+            },
+        )
     else:
         hygiene()
         run("ruff", "check", "backend", "tools")
