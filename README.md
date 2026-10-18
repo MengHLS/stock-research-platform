@@ -69,6 +69,47 @@ uv run python tools/project.py dev  # 前后端一起（API 8000）
 
 未实现页面显示“待开发”并说明等待的模块，不填充示例数据。设计来源与原型的读取方式见[运维“前端原型”](docs/runbook.md)。
 
+## 账号与邀请码
+
+> ⚠️ **本节包含可用的登录凭据与注册邀请码，且本文件受 Git 跟踪。**
+> 提交后它们会永久留在仓库历史中；推送到远程后任何能读仓库的人都可以看到。
+> 仅适用于单人、私有、不公开的仓库。若要公开仓库或邀请他人协作，
+> 请先作废下列邀请码（`identity --identity-action invite-revoke`）、
+> 重置管理员密码，再把本节改成从 `.env` 或密码管理器读取。
+
+首次登录使用管理员账号：
+
+| 项 | 值 |
+|---|---|
+| 邮箱 | `admin@example.com` |
+| 密码 | `admin-mp3CW5mMLEB8j28JW8bc` |
+| 角色 | `admin` |
+| 地址 | 开发环境 <http://127.0.0.1:5173/login> |
+
+自助注册需要邀请码（单次使用，默认 14 天有效）。当前可用邀请码：
+
+| 标签 | 邀请码 | 状态 |
+|---|---|---|
+| 初始邀请码 | `rp_1KbSmh8l_iCAag` | 可用，有效期至 2026-11-01 |
+
+查看邀请码状态、发新码或作废：
+
+```sh
+uv run python tools/project.py identity --identity-action invite-list
+uv run python tools/project.py identity --identity-action invite-create --label "给谁用"
+uv run python tools/project.py identity --identity-action invite-revoke --code-id <id>
+```
+
+管理员密码可在命令行重置（同时撤销该账号所有会话）：
+
+```sh
+uv run python tools/project.py identity --identity-action user-reset-password \
+  --email admin@example.com --password '新密码'
+```
+
+登录还需要 `.env` 中配置 `RP_AUTH__SECRET`（≥32 字符）。该密钥已在本机生成，
+不进 Git；换机器时需要重新生成并重建会话（详见[运维“注册与登录”](docs/runbook.md)）。
+
 ## 目录
 
 ```text
