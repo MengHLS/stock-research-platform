@@ -149,7 +149,7 @@ uv run python tools/project.py prototype --action shape  # 输出导航/视图 J
 uv run python tools/project.py prototype --action copy --to .scratch/prototype.html
 ```
 
-工具按 `stock-limit-up-analyzer` / `stock-research-platform` 字样定位项目，不硬编码项目 ID；找不到或匹配多个时明确报错。当前原型：13 个已实现入口、9 个待开发入口、22 个视图、13 份设计文档。
+工具按 `stock-limit-up-analyzer` / `stock-research-platform` 字样定位项目，不硬编码项目 ID；找不到或匹配多个时明确报错。当前原型：13 个已实现入口、9 个待开发入口、22 个视图、13 份设计文档。登录/注册另有一份 `auth.html`（左右分栏：左品牌陈列、右表单），本仓库登录页按其布局实现，但示例行情预览、演示账号与验证码均未移植（后端无对应能力），改为渲染真实 `/health/live` 与 `/api/v1/market/sources`。
 
 **原型是设计参考，不是代码来源**：本仓库为 Vue 3 + Element Plus + openapi-fetch，原型来源项目为 React 19 + shadcn + tRPC，页面须按设计意图重写，不能复制移植。实施前确认目标视图、数据来源（`/api/v1/market/*` 等）与原型示例数据的差异；模拟数据与未实现入口不得当成本仓库已有能力。未验证项：字段对齐、浅色主题对比度、移动端布局，需逐页验收。
 
@@ -172,10 +172,10 @@ dev 站点是内部验证环境：公网 IP + HTTP，不满足下文发布门槛
 | 组件 | 位置 | 说明 |
 |---|---|---|
 | GitHub Actions / GHCR | GitHub | 门禁、构建并推送 SHA 标签镜像、SSH 部署、远端冒烟 |
-| Docker Compose | ECS | `deploy/compose.server.yaml`；只有 web 发布端口（默认 8080） |
+| Docker Compose | ECS | `deploy/compose.server.yaml`；只有 web 发布端口（默认 80） |
 | db | ECS（既有） | 复用既有 MySQL 实例的 `research` 库与账号，不新建容器 |
 
-`deploy/compose.yaml`（本机）与 `compose.server.yaml`（服务器）互不覆盖，服务器不构建镜像。初始化：ECS 装 Docker 与 git，安全组只放行 8080 与 SSH；克隆仓库切到 dev；`cp deploy/env.server.example deploy/.env && chmod 600 deploy/.env` 后填 `IMAGE_PREFIX`、既有 MySQL 的 `MYSQL_*` 与 `RP_AUTH__SECRET`；首版 `bash deploy/deploy.sh --tag <SHA>`。首个账号在镜像内用 `python tools/project.py identity --identity-action user-create --email you@example.com --role admin` 创建。
+`deploy/compose.yaml`（本机）与 `compose.server.yaml`（服务器）互不覆盖，服务器不构建镜像。初始化：ECS 装 Docker 与 git，安全组只放行 80 与 SSH；克隆仓库切到 dev；`cp deploy/env.server.example deploy/.env && chmod 600 deploy/.env` 后填 `IMAGE_PREFIX`、既有 MySQL 的 `MYSQL_*` 与 `RP_AUTH__SECRET`；首版 `bash deploy/deploy.sh --tag <SHA>`。首个账号在镜像内用 `python tools/project.py identity --identity-action user-create --email you@example.com --role admin` 创建。
 
 GitHub 配置：Secret `ECS_HOST`/`ECS_USER`/`ECS_SSH_KEY`；Variable `DEPLOY_PATH`/`WEB_PORT`。镜像仓库用仓库内置 `GITHUB_TOKEN`，无需额外凭据。
 

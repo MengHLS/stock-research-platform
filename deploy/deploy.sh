@@ -99,7 +99,7 @@ chmod 700 "$STATE_DIR"
 
 compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 
-web_port="${RP_WEB_PORT:-8080}"
+web_port="${RP_WEB_PORT:-80}"
 ready_url="http://127.0.0.1:${web_port}/health/ready"
 
 image_for() {

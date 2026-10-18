@@ -67,7 +67,7 @@ services:
     image: ${RP_IMAGE_WEB:?由 deploy/deploy.sh 注入镜像地址}
     restart: unless-stopped
     ports:
-      - "${RP_WEB_PORT:-8080}:8080"
+      - "${RP_WEB_PORT:-80}:8080"
     depends_on:
       api:
         condition: service_started

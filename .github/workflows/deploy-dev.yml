@@ -125,7 +125,7 @@ jobs:
           ECS_HOST: ${{ secrets.ECS_HOST }}
           WEB_PORT: ${{ vars.WEB_PORT }}
         run: |
-          port="${WEB_PORT:-8080}"
+          port="${WEB_PORT:-80}"
           curl -fsS --max-time 10 "http://${ECS_HOST}:${port}/health/live" >/dev/null
           curl -fsS --max-time 10 "http://${ECS_HOST}:${port}/health/ready" >/dev/null
           echo "健康端点在 http://${ECS_HOST}:${port} 可用"
