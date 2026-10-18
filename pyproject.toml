@@ -12,10 +12,13 @@ dependencies = [
   "alembic>=1.14,<2",
   "pymysql[rsa]>=1.1,<2",
   "email-validator>=2.2,<3",
+  # 运行时依赖：core/upstream.py 在导入期即使用，不能只放 dev 组，
+  # 否则 --no-dev 构建的镜像会在启动时报 ModuleNotFoundError。
+  "httpx2>=2,<3",
 ]
 
 [dependency-groups]
-dev = ["httpx2>=2,<3", "pytest>=8,<10", "ruff>=0.12,<1"]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
 
 [build-system]
 requires = ["hatchling>=1.27"]
