@@ -95,8 +95,14 @@ jobs:
           test -n "$ECS_SSH_KEY" || { echo "缺少密钥 ECS_SSH_KEY"; exit 1; }
           test -n "$ECS_HOST" || { echo "缺少密钥 ECS_HOST"; exit 1; }
           mkdir -p ~/.ssh
-          printf '%s\n' "$ECS_SSH_KEY" > ~/.ssh/deploy_key
+          # 私钥经常从 Windows 记事本复制，带 CRLF；SSH 会报 invalid format 并以 255 退出。
+          printf '%s\n' "$ECS_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          # 私钥无法解析时立刻失败，避免以笼统的 255 出现在部署步骤里。
+          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null || {
+            echo "ECS_SSH_KEY 不是有效的 OpenSSH 私钥（需包含 BEGIN/END 两行）"
+            exit 1
+          }
           ssh-keyscan -H "$ECS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
       - name: 触发远端部署
         env:
@@ -111,7 +117,8 @@ jobs:
           test -n "$DEPLOY_PATH" || { echo "缺少仓库变量 DEPLOY_PATH"; exit 1; }
           # 服务器仓库只用于取部署脚本与编排；deploy/.env 与 .state 被 Git 忽略。
           # 环境变量经 stdin 传入，token 不出现在远端命令行。
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
             "$ECS_USER@$ECS_HOST" 'bash -s' <<EOF
           set -e
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
