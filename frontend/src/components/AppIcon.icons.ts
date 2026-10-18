@@ -58,4 +58,10 @@ export const icons: Record<string, string> = {
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   'panel-left-close': '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
   'panel-left-open': '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
+  // Brand mark (磐石 plinth). Defined here as well as in `brand.ts` so the rail and
+  // every other icon lookup share one table; `brand.ts` owns the meaning.
+  plinth:
+    '<path d="M12 4.2 18.6 8.1 12 12 5.4 8.1 12 4.2Z"/><path d="M5.4 12.6 12 16.5 18.6 12.6"/><path d="M5.4 17.1 12 21 18.6 17.1"/>',
+  'plinth-compact':
+    '<path d="M12 4.6 18.2 8.6 12 12.6 5.8 8.6 12 4.6Z"/><path d="M5.8 15.2 12 19.2 18.2 15.2"/>',
 }

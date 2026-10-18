@@ -5,8 +5,10 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -313,6 +315,173 @@ def prototype(action: str = "list", destination: str | None = None) -> None:
     print(f"entries : {implemented} implemented, {total - implemented} planned")
 
 
+# --- brand icons ------------------------------------------------------------
+# The favicon and app icons are generated from the same geometry the UI draws, so
+# the browser tab, the shortcut and the in-app lockup cannot drift. Written with
+# zlib and struct only, to avoid adding an image library to the runtime.
+
+
+ICON_DIR = ROOT / "frontend" / "public"
+
+# Brand colour (dark theme). The favicon is the one place a single colour must be
+# hard-coded: it renders before any stylesheet, so it cannot read a CSS variable.
+BRAND = (255, 106, 26)
+WHITE = (255, 255, 255)
+
+# The plinth glyph, expressed as the same path data the UI uses, flattened to
+# polygons for a dependency-free rasteriser.
+# Each course is a rhombus; the two lower ones are open bands drawn as thick lines,
+# which matches how the mark reads at small sizes.
+# Scaled to sit inside the tile with padding: a glyph that fills the whole square
+# reads as a blob in a 16px browser tab, and the two lower courses merge together.
+# Three equal courses. The top face is an outlined rhombus (not a solid fill) so
+# all three read at the same weight; a filled top made the mark look like a stack
+# of arrows instead of a plinth.
+TOP = [(12.0, 4.2), (18.6, 8.1), (12.0, 12.0), (5.4, 8.1)]
+GLYPH = [
+    (TOP, "outline"),
+    ([(5.4, 12.6), (12.0, 16.5), (18.6, 12.6)], "outline"),
+    ([(5.4, 17.1), (12.0, 21.0), (18.6, 17.1)], "outline"),
+]
+
+
+def _coverage(px: float, py: float) -> tuple[float, float]:
+    """Return (fill_inside, stroke_inside) for one sample point in 24×24 space."""
+    filled = 0.0
+    stroked = 0.0
+    for points, mode in GLYPH:
+        closed = mode == "outline"
+        count = len(points)
+        for index in range(count if closed else count - 1):
+            a = points[index]
+            b = points[(index + 1) % count]
+            if _distance_to_segment(px, py, a, b) <= 0.85:
+                stroked = 1.0
+    return filled, stroked
+
+
+def _point_in_polygon(px: float, py: float, points: list[tuple[float, float]]) -> bool:
+    inside = False
+    count = len(points)
+    for index in range(count):
+        x1, y1 = points[index]
+        x2, y2 = points[(index + 1) % count]
+        if (y1 > py) != (y2 > py):
+            cross = x1 + (py - y1) * (x2 - x1) / (y2 - y1)
+            if px < cross:
+                inside = not inside
+    return inside
+
+
+def _distance_to_segment(
+    px: float, py: float, a: tuple[float, float], b: tuple[float, float]
+) -> float:
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    if dx == 0 and dy == 0:
+        return ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+    return ((px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2) ** 0.5
+
+
+def render(size: int) -> list[list[tuple[int, int, int]]]:
+    """Render the rounded-square mark at `size` px with 4×4 supersampling."""
+    rows: list[list[tuple[int, int, int]]] = []
+    scale = 24.0 / size
+    samples = 4
+    radius = 6.0 / 24.0  # corner radius as a fraction of the tile
+    for y in range(size):
+        row: list[tuple[int, int, int]] = []
+        for x in range(size):
+            fill_hit = 0
+            glyph_hit = 0
+            for sy in range(samples):
+                for sx in range(samples):
+                    px = (x + (sx + 0.5) / samples) * scale
+                    py = (y + (sy + 0.5) / samples) * scale
+                    # Rounded-square mask, in 0..1 normalised coordinates.
+                    nx = (x + (sx + 0.5) / samples) / size
+                    ny = (y + (sy + 0.5) / samples) / size
+                    if not _inside_rounded_square(nx, ny, radius):
+                        continue
+                    fill_hit += 1
+                    filled, stroked = _coverage(px, py)
+                    if filled or stroked:
+                        glyph_hit += 1
+            total = samples * samples
+            if fill_hit == 0:
+                row.append((0, 0, 0, 0))  # type: ignore[arg-type]
+                continue
+            alpha = round(255 * fill_hit / total)
+            glyph_ratio = glyph_hit / fill_hit
+            red = round(BRAND[0] * (1 - glyph_ratio) + WHITE[0] * glyph_ratio)
+            green = round(BRAND[1] * (1 - glyph_ratio) + WHITE[1] * glyph_ratio)
+            blue = round(BRAND[2] * (1 - glyph_ratio) + WHITE[2] * glyph_ratio)
+            row.append((red, green, blue, alpha))  # type: ignore[arg-type]
+        rows.append(row)
+    return rows
+
+
+def _inside_rounded_square(nx: float, ny: float, radius: float) -> bool:
+    cx = min(max(nx, radius), 1 - radius)
+    cy = min(max(ny, radius), 1 - radius)
+    if nx == cx and ny == cy:
+        return True
+    return ((nx - cx) ** 2 + (ny - cy) ** 2) ** 0.5 <= radius
+
+
+def write_png(path: Path, size: int) -> None:
+    pixels = render(size)
+    raw = bytearray()
+    for row in pixels:
+        raw.append(0)  # filter type 0
+        for pixel in row:
+            raw.extend(pixel[:4] if len(pixel) == 4 else (*pixel, 255))
+
+    def chunk(tag: bytes, payload: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(payload))
+            + tag
+            + payload
+            + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    png = b"\x89PNG\r\n\x1a\n"
+    png += chunk(b"IHDR", header)
+    png += chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+    png += chunk(b"IEND", b"")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(png)
+
+
+def write_svg(path: Path) -> None:
+    """A vector favicon so high-DPI tabs and OS shortcuts stay crisp."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" '
+        'aria-label="磐石 Quant Lab">'
+        '<rect width="24" height="24" rx="6" fill="#ff6a1a"/>'
+        '<g fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" '
+        'stroke-linejoin="round">'
+        '<path d="M12 4.6 19.4 8.4 12 12.2 4.6 8.4 12 4.6Z" fill="#ffffff" stroke="none"/>'
+        '<path d="M4.6 13.1 12 17 19.4 13.1"/>'
+        '<path d="M4.6 17.3 12 21.2 19.4 17.3"/>'
+        "</g></svg>"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(svg + "\n", encoding="utf-8")
+
+
+def generate_brand_icons() -> None:
+    write_svg(ICON_DIR / "favicon.svg")
+    write_png(ICON_DIR / "favicon-32.png", 32)
+    write_png(ICON_DIR / "apple-touch-icon.png", 180)
+    write_png(ICON_DIR / "icon-192.png", 192)
+    write_png(ICON_DIR / "icon-512.png", 512)
+    print(f"brand icons written to {ICON_DIR}")
+
+
 # --- identity administration ------------------------------------------------
 # No admin web UI: for one or two users the operator issues an invitation code (or
 # creates the account) from here. Only non-secret outcomes are printed; a new
@@ -538,6 +707,7 @@ def main() -> None:
             "market-check",
             "prototype",
             "identity",
+            "icons",
         ],
     )
     parser.add_argument("--target", choices=["app", "source"], default="app")
@@ -587,6 +757,8 @@ def main() -> None:
         market_check()
     elif args.task == "prototype":
         prototype(args.action, args.to)
+    elif args.task == "icons":
+        generate_brand_icons()
     elif args.task == "identity":
         if not args.identity_action:
             raise SystemExit("identity needs --identity-action; run --help")

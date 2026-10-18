@@ -1,7 +1,7 @@
 [project]
 name = "stock-research-platform"
 version = "0.1.0"
-description = "Vue and FastAPI modular research workspace"
+description = "磐石 Quant Lab - A-share quant research workspace (Vue + FastAPI)"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi>=0.115,<1",

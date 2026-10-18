@@ -53,7 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             log_event("api.stopped", version=__version__)
 
     app = FastAPI(
-        title="Stock Research Platform",
+        title="磐石 Quant Lab",
         version=__version__,
         lifespan=lifespan,
         # One shared error body is declared once so generated clients can type

@@ -71,7 +71,7 @@ onUnmounted(() => controller?.abort())
   <div class="overview">
     <section class="panel">
       <span class="eyebrow">FOUNDATION</span>
-      <h2>先把基础搭稳，再把研究接进来。</h2>
+      <h2>磐石为基，研究其上。</h2>
       <p class="lede">
         前后端分离、业务模块清晰、接口类型自动生成。这里展示实际工程状态，不模拟研究收益或任务完成。
       </p>

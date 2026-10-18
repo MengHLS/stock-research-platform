@@ -12,6 +12,8 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppIcon from './AppIcon'
+import BrandLogo from './BrandLogo.vue'
+import { brandMarkSizes } from '../brand'
 import { navGroups, type NavItem } from '../navigation'
 import { useAppearance } from '../stores/appearance'
 
@@ -37,11 +39,11 @@ function onSelect(item: NavItem) {
     aria-label="主导航"
   >
     <div class="rail__brand">
-      <span class="rail__mark" aria-hidden="true">研</span>
-      <span v-if="!collapsed" class="rail__brand-text">
-        研究工作台
-        <small>Research Platform</small>
-      </span>
+      <BrandLogo
+        :mode="collapsed ? 'mark' : 'full'"
+        :size="collapsed ? brandMarkSizes.railCompact : brandMarkSizes.rail"
+        :variant="collapsed ? 'plinth-compact' : 'plinth'"
+      />
     </div>
 
     <nav class="rail__nav">
@@ -110,34 +112,6 @@ function onSelect(item: NavItem) {
   gap: 10px;
   padding: 8px 8px 14px;
   min-height: 56px;
-}
-
-.rail__mark {
-  width: 32px;
-  height: 32px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius);
-  background: var(--brand);
-  color: #fff;
-  font-weight: 650;
-  font-size: 15px;
-}
-
-.rail__brand-text {
-  font-weight: 650;
-  font-size: 14px;
-  line-height: 1.25;
-  white-space: nowrap;
-}
-
-.rail__brand-text small {
-  display: block;
-  font-weight: 400;
-  font-size: 11px;
-  color: var(--muted);
-  letter-spacing: 0.02em;
 }
 
 .rail__nav {

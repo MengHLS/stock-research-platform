@@ -1,8 +1,10 @@
-# 研究工作台
+# 磐石 · Quant Lab
 
 > Coding Agent：开发前先读 [AGENTS.md](AGENTS.md)，按任务读取对应规范。本 README 面向项目使用者，负责介绍与启动，不作为开发规则的第二来源。
 
-Vue 3 + TypeScript 前端，Python + FastAPI 后端，独立 Worker；一个 Git 仓库维护。
+A 股量化研究工作台：行情复盘、模式库、策略验证与数据集。Vue 3 + TypeScript 前端，Python + FastAPI 后端，独立 Worker；一个 Git 仓库维护。
+
+名称与图标：**磐石**取"稳固基座"之意——平台是研究工作站立的地基；图形是三层叠压的石台，与界面图标同族（24×24 网格、1.8 描边）。品牌定义集中在 `frontend/src/brand.ts`，改名或换标只改一处。
 
 这是可运行的开发骨架。已包含接口类型生成、SQLAlchemy、显式 Alembic 迁移、私人目录查询、平台诊断队列、测试与 CI 模板；没有移植旧研究引擎或接入真实行情。
 
@@ -68,6 +70,16 @@ uv run python tools/project.py dev  # 前后端一起（API 8000）
 ```
 
 未实现页面显示“待开发”并说明等待的模块，不填充示例数据。设计来源与原型的读取方式见[运维“前端原型”](docs/runbook.md)。
+
+### 品牌与图标
+
+品牌名 **磐石 / Quant Lab**（平台是研究工作站立的地基），定义集中在 `frontend/src/brand.ts`，改名或换标语只改一处。图形是三层等重叠压的石台，与界面图标同族（24×24 网格、1.8 描边），顶面用描边而非实心以免读成箭头。
+
+```sh
+uv run python tools/project.py icons   # 生成 favicon 与 app 图标到 frontend/public
+```
+
+几何同时定义在 `tools/project.py`（栅格化）与 `AppIcon.icons.ts`（浏览器 SVG），改形时两处同步。
 
 ## 账号与邀请码
 

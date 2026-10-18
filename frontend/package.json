@@ -1,5 +1,6 @@
 {
   "name": "research-platform-web",
+  "description": "磐石 Quant Lab — A 股量化研究工作台前端",
   "private": true,
   "version": "0.1.0",
   "type": "module",

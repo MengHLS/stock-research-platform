@@ -11,6 +11,8 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppIcon from '../components/AppIcon'
+import BrandLogo from '../components/BrandLogo.vue'
+import { brand } from '../brand'
 import { useAppearance } from '../stores/appearance'
 import { useSession } from '../stores/session'
 
@@ -77,11 +79,7 @@ async function submit() {
 
     <form class="login__card" @submit.prevent="submit">
       <div class="login__brand">
-        <span class="login__mark" aria-hidden="true">研</span>
-        <div>
-          <h1>研究工作台</h1>
-          <p>Stock research platform</p>
-        </div>
+        <BrandLogo :size="40" />
       </div>
 
       <div class="login__tabs" role="tablist">
@@ -154,7 +152,9 @@ async function submit() {
         {{ session.busy ? '处理中…' : submitLabel }}
       </button>
 
-      <p class="login__hint">注册需要邀请码：本平台只面向少量受邀用户，账号由管理员审核后发放。</p>
+      <p class="login__hint">
+        {{ brand.tagline }}。注册需要邀请码：本平台只面向少量受邀用户，账号由管理员审核后发放。
+      </p>
     </form>
   </div>
 </template>
@@ -200,30 +200,6 @@ async function submit() {
   align-items: center;
   gap: 12px;
   margin-bottom: 4px;
-}
-
-.login__mark {
-  width: 40px;
-  height: 40px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius);
-  background: var(--brand);
-  color: #fff;
-  font-weight: 650;
-}
-
-.login__brand h1 {
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.3;
-}
-
-.login__brand p {
-  margin: 0;
-  font-size: 11px;
-  color: var(--muted);
 }
 
 .login__tabs {

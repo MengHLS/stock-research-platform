@@ -11,6 +11,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AppIcon from './AppIcon'
+import { brand } from '../brand'
 import { useAppearance } from '../stores/appearance'
 import { useSession } from '../stores/session'
 
@@ -21,7 +22,7 @@ const router = useRouter()
 
 const menuOpen = ref(false)
 
-const title = computed(() => (route.meta.title as string | undefined) ?? '研究工作台')
+const title = computed(() => (route.meta.title as string | undefined) ?? brand.name)
 const subtitle = computed(() => (route.meta.subtitle as string | undefined) ?? '')
 const displayName = computed(() => session.user?.display_name || session.user?.email || '未登录')
 
