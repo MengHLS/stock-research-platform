@@ -97,6 +97,12 @@ fi
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 
+# CI 推送式部署与服务器定时拉取可能同时触发；串行化，后到的直接失败而不是交叉启动容器。
+exec 9>"$STATE_DIR/.deploy.lock"
+if command -v flock >/dev/null 2>&1; then
+  flock -n 9 || die "另一个部署正在进行（$STATE_DIR/.deploy.lock）"
+fi
+
 compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 
 web_port="${RP_WEB_PORT:-80}"

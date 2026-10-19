@@ -129,8 +129,14 @@ jobs:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # 仓库变量从网页粘贴时经常带 CRLF，远端 cd 会得到带 \r 的路径。
+          DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH" | tr -d '\r\n')"
           test -n "$ECS_USER" || { echo "缺少密钥 ECS_USER"; exit 1; }
           test -n "$DEPLOY_PATH" || { echo "缺少仓库变量 DEPLOY_PATH"; exit 1; }
+          case "$DEPLOY_PATH" in
+            /*) ;;
+            *) echo "DEPLOY_PATH 必须是绝对路径，例如 /opt/stock-research-platform"; exit 1 ;;
+          esac
           # 服务器仓库只用于取部署脚本与编排；deploy/.env 与 .state 被 Git 忽略。
           # 环境变量经 stdin 传入，token 不出现在远端命令行。
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
