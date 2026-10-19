@@ -7,6 +7,7 @@
  */
 import type { RouteRecordRaw } from 'vue-router'
 
+import AboutPage from './pages/AboutPage.vue'
 import CatalogPage from './pages/CatalogPage.vue'
 import LoginPage from './pages/LoginPage.vue'
 import OverviewPage from './pages/OverviewPage.vue'
@@ -25,14 +26,31 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: '登录', public: true },
   },
   {
+    // Public on purpose: a prospective user must be able to read what the
+    // platform does before asking for an invitation code. It shows only the
+    // real health/source state, so nothing private is exposed.
+    path: '/about',
+    name: 'about',
+    component: AboutPage,
+    meta: { title: '平台说明', public: true },
+  },
+  {
+    // Temporary landing page while the market review overview is the primary
+    // workflow. Keep this as a redirect so restoring the engineering overview
+    // later only requires changing the destination.
     path: '/',
-    name: 'overview',
-    component: OverviewPage,
-    meta: { title: '工程概览', subtitle: '骨架状态与下一步' },
+    name: 'home',
+    redirect: '/market/overview',
+    meta: { title: '行情复盘总览', subtitle: '日期、情绪、指数与连板结构' },
   },
 
   // 市场环境
-  planned('/market/overview', '行情复盘总览', '等待市场复盘数据集与汇总接口。'),
+  {
+    path: '/market/overview',
+    name: 'market-overview',
+    component: () => import('./pages/MarketOverviewPage.vue'),
+    meta: { title: '行情复盘总览', subtitle: '日期、情绪、指数与连板结构' },
+  },
   planned('/market/limit-up', '涨停复盘明细', '等待涨停复盘数据接入。'),
   planned('/market/sentiment', '情绪周期', '等待情绪指标计算模块。'),
   {
@@ -76,5 +94,5 @@ export const routes: RouteRecordRaw[] = [
   planned('/system/robustness', '稳健性 / OOS', '等待样本外验证模块。'),
   planned('/system/paper', '前向纸面交易', '等待纸面交易模块。'),
 
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  { path: '/:pathMatch(.*)*', redirect: '/market/overview' },
 ]

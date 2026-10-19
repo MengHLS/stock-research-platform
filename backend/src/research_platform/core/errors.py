@@ -142,6 +142,24 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
     "MARKET_SOURCE_RATE_LIMITED": ErrorSpec(
         "MARKET_SOURCE_RATE_LIMITED", 429, ErrorCategory.RATE_LIMITED, "行情源调用频率受限。"
     ),
+    "MARKET_REVIEW_RANGE_INVALID": ErrorSpec(
+        "MARKET_REVIEW_RANGE_INVALID", 400, ErrorCategory.REQUEST, "复盘查询区间或窗口不合法。"
+    ),
+    "MARKET_REVIEW_DATE_UNAVAILABLE": ErrorSpec(
+        "MARKET_REVIEW_DATE_UNAVAILABLE", 404, ErrorCategory.NOT_FOUND, "该日期没有可用的复盘数据。"
+    ),
+    "MARKET_REVIEW_SOURCE_UNAVAILABLE": ErrorSpec(
+        "MARKET_REVIEW_SOURCE_UNAVAILABLE",
+        503,
+        ErrorCategory.UNAVAILABLE,
+        "历史复盘数据源暂不可用。",
+    ),
+    "MARKET_REVIEW_SOURCE_BAD_DATA": ErrorSpec(
+        "MARKET_REVIEW_SOURCE_BAD_DATA",
+        502,
+        ErrorCategory.UNAVAILABLE,
+        "历史复盘数据源包含无法识别的数据。",
+    ),
     "DATABASE_UNAVAILABLE": ErrorSpec(
         "DATABASE_UNAVAILABLE", 503, ErrorCategory.UNAVAILABLE, "数据库暂不可用。"
     ),

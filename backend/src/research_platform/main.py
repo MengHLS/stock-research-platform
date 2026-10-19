@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from research_platform import __version__
 from research_platform.core.config import Settings
-from research_platform.core.database import make_application_engine, session_dependency
+from research_platform.core.database import (
+    make_application_engine,
+    make_source_engine,
+    session_dependency,
+)
 from research_platform.core.error_handlers import install_error_handlers
 from research_platform.core.errors import DEFAULT_ERROR_RESPONSES
 from research_platform.core.logging import ROLE_API, configure_logging, log_event
@@ -23,6 +27,8 @@ from research_platform.core.upstream import UpstreamClient
 from research_platform.modules.catalog.router import router as catalog_router
 from research_platform.modules.execution.router import router as execution_router
 from research_platform.modules.identity.router import router as identity_router
+from research_platform.modules.market.legacy_review_source import LegacyMarketReviewSource
+from research_platform.modules.market.review import MarketReviewService
 from research_platform.modules.market.router import router as market_router
 from research_platform.modules.market.service import MarketService
 
@@ -40,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings.require_development_release()
     configure_logging(role=ROLE_API, level=settings.log_level)
     engine = make_application_engine(settings)
+    source_engine = make_source_engine(settings) if settings.source_mysql else None
     upstream = UpstreamClient(settings)
 
     @asynccontextmanager
@@ -49,6 +56,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             upstream.close()
+            if source_engine is not None:
+                source_engine.dispose()
             engine.dispose()
             log_event("api.stopped", version=__version__)
 
@@ -65,6 +74,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Public market data is not user-scoped and is never persisted; the service
     # owns its own TTL cache and is closed with the API lifecycle.
     app.state.market = MarketService(settings, upstream)
+    app.state.market_review = MarketReviewService(
+        LegacyMarketReviewSource(source_engine) if source_engine is not None else None,
+        settings.review,
+    )
     install_error_handlers(app)
     # Added last so it is outermost: ids exist before any handler or route runs.
     app.add_middleware(RequestContextMiddleware)

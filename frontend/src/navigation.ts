@@ -34,7 +34,7 @@ export const navGroups: NavGroup[] = [
         id: 'overview',
         name: '行情复盘总览',
         icon: 'trending-up',
-        implemented: false,
+        implemented: true,
       },
       {
         path: '/market/limit-up',
@@ -55,7 +55,10 @@ export const navGroups: NavGroup[] = [
         id: 'intraday',
         name: '盘中研判',
         icon: 'target',
-        implemented: true,
+        // The market endpoints exist, but the page itself still renders
+        // PlannedPage. Marking it implemented made the rail offer a route that
+        // only says "not built"; the public about page reads this same flag.
+        implemented: false,
       },
     ],
   },
@@ -235,3 +238,13 @@ export type IconName =
   | 'user'
   | 'panel-left-close'
   | 'panel-left-open'
+  // Used by the login and about screens, not by nav entries.
+  | 'mail'
+  | 'lock'
+  | 'eye'
+  | 'eye-off'
+  | 'check'
+  | 'key'
+  | 'alert-triangle'
+  | 'info'
+  | 'arrow-right'

@@ -49,9 +49,9 @@ Agent 开始研究前先读首页并搜索主题目录；已有主题就更新�
 
 两套 MySQL 配置均含 HOST、PORT、DATABASE、USERNAME、PASSWORD、TLS、可选 CA_FILE、CONNECT_TIMEOUT 和 READ_TIMEOUT。PASSWORD 保持原值，由 URL.create 构造连接参数；无需手工拼接或 URL 转义。dotenv 中带 #、空格等字符的密码应加引号，容器环境变量则传原值。完整字段以 `.env.example` 和 Settings 为准。
 
-默认 TLS=verify，校验证书链及主机名；CA_FILE 未设时用系统信任根。自签发 CA 通过服务端私有路径配置。TLS=disabled 仅用于隔离的本机开发环境，不得用于公网 TiDB；不提供跳过证书验证的“prefer”模式。
+默认 TLS=verify，校验证书链及主机名；CA_FILE 未设时用系统信任根，而 verify_ca 必须显式指定 CA_FILE（留空即启动报配置错误）。TLS=verify_ca 用固定的 CA_FILE 校验证书链但**不校验主机名**（等价 MySQL VERIFY_CA），用于 MySQL 8 自动生成的服务器证书：这类证书没有 subjectAltName，主机名校验永远不可能通过；而 disabled 明文连接实测被服务器以 1045 拒绝（具体机制未逐层验证），因此该模式是这类库唯一可用选项。它仍强制加密、校验失败即断连，不降级为不校验连接，因此不是被拒绝的“prefer”模式。自签发 CA 通过服务端私有路径配置，挂载示例见 `deploy/compose.server.yaml`。TLS=disabled 仅用于隔离的本机开发环境，不得用于公网 TiDB。
 
-结构化应用 MySQL 启用时移除 RP_DATABASE_URL；相同主机/端口/库名的应用与源配置会被拒绝，但 DNS 别名、转发地址等仍需人工核实。旧式应用 URL 为兼容保留，远程 MySQL 应迁到结构化配置以统一 TLS/超时控制。角色检查不是数据库访问权限证明。
+结构化应用 MySQL 启用时移除 RP_DATABASE_URL；相同主机/端口/库名的应用与源配置会被拒绝，但 DNS 别名、转发地址等仍需人工核实。旧式应用 URL 为兼容保留，远程 MySQL 应迁到结构化配置以统一 TLS/超时控制。角色检查不是数据库访问权限证明。本机开发曾临时豁免“独立库 + SELECT-only 账号”两条约束（复用旧工程同库及 `app` 全权账号），仅由用户明确同意，恢复条件见决策 D09“本机临时豁免”；工具输出不因豁免而放松判断。
 
 统一任务入口（在项目根目录执行）：
 
@@ -65,9 +65,9 @@ uv run python tools/project.py db-check --target app
 
 db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 SELECT 1 连通检查，不建表、不扫描业务数据，也不证明只读授权、表结构或研究语义正确。源库权限由管理员核实实际授权及继承角色；不能通过尝试写生产表验证只读。TiDB 的普通 READ ONLY 事务声明并非可靠写保护，见[官方说明](https://docs.pingcap.com/tidbcloud/sql-statement-set-transaction/)。
 
-旧项目使用 DATABASE_URL、TUSHARE_TOKEN 及 MINIO_*；它们不自动继承。旧 Node mysql URL 的 ssl JSON 参数不能直接搬给 PyMySQL。当前未复制旧凭据、未连接旧库；Tushare 采集和 MinIO 产物存储是独立适配任务，不混入数据库配置。
+旧项目使用 DATABASE_URL、TUSHARE_TOKEN 及 MINIO_*，它们不自动继承；旧 Node mysql URL 的 ssl JSON 参数不能直接搬给 PyMySQL：旧工程用 `ssl={"rejectUnauthorized":false}`（加密但不校验证书），本工程对应应选 verify_ca 并固定其 CA，选 verify 会因主机名不匹配而失败。历史复盘只读 `index_daily`（交易日/四指数）、`limit_up_records`（涨停记录）、`stock_daily_prices`（梯队行情）和 `market_data`（成交额/两融，旧源亿元口径），不绑定应用 ORM、不迁移旧表。
 
-源库首次接入前需确认：真实库位置与表范围、独立只读账号、TLS/CA、网络白名单和预期快照版本。随后只做授权的连通/结构检查；取数、冻结快照、缓存和研究对拍分别验收。源库未配不妨碍本地应用开发，应用健康检查不冒充研究源健康。
+源库首次接入前需确认真实库位置与上述表范围、独立只读账号、TLS/CA、网络白名单和快照版本；只做授权的连通/结构检查。登录后总览页调用 `context`（默认日/前后日）、`dates`（区间≤366 日）、`overview` 与 `indices`（窗口≤120 交易日）；`RP_REVIEW__*` 控制缓存、窗口和连板回溯。源库未配时接口返回 `SOURCE_NOT_CONFIGURED`。覆盖 `available/completeness=presence_only` 只表示源中存在行；无涨停行、前一日缺口、连板链触顶时相关值为 null 并带稳定 issue，不填 0。坏数据 502 `MARKET_REVIEW_SOURCE_BAD_DATA`，SQL/表不可用 503 `MARKET_REVIEW_SOURCE_UNAVAILABLE`，非交易日 404。当前页面已用本地假数据完成视觉与交互检查；四张旧表的真实表结构、行数及日期极值已核实（逐表基线见[决策 D15](decisions.md#d15--历史复盘首版只读旧源并显式表达缺失)，各表日期范围不同且不保证区间完整），但只读权限（本机为临时豁免的全权账号）、数据完整性、性能与采集补数仍未验收。
 
 ## 公共行情数据源
 
@@ -84,7 +84,7 @@ db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 
 
 标的写法：**规范形态为后缀式 `600519.SH` / `000001.SZ` / `920982.BJ`**，返回的 `symbol` 一律是该形态；入参同时接受 `600519`、`sh600519`、`sh.600519`、`SH600519`、`600519.sh` 等变体，统一折叠为规范形态。上证指数号段（`000001`/`000010`/`000016`/`000300`/`000688`/`000852`/`000905`）与深市股票同时使用 `000xxx`，深市指数 `399001`/`399106` 也需区分，这些**必须带交易所前缀**；裸代码一律 400 `MARKET_SYMBOL_INVALID`，不做猜测。北交所（`bj` 前缀）无腾讯分钟线，返回 `MARKET_DATA_UNAVAILABLE` 而不是空数组。日内K线与日线的成交量均换算为股（`volume_shares`）；腾讯快照因股票/ETF/指数口径不一致，字段为 `volume_lots` 并附 `volume_note`。时间对外为 UTC ISO 8601，另附 `trading_day` 交易日。
 
-失败码：`MARKET_SYMBOL_INVALID`(400)、`MARKET_DATA_UNAVAILABLE`(404)、`MARKET_SOURCE_UNAVAILABLE`(503)、`MARKET_SOURCE_BAD_RESPONSE`(502)、`MARKET_SOURCE_NOT_CONFIGURED`/`MARKET_SOURCE_DISABLED`(503)、`MARKET_SOURCE_PERMISSION_DENIED`(503)、`MARKET_SOURCE_RATE_LIMITED`(429)。供应商原始报文与 Tushare token 不写日志、不回前端。
+失败码：`MARKET_SYMBOL_INVALID`(400)、`MARKET_DATA_UNAVAILABLE`(404)、`MARKET_SOURCE_UNAVAILABLE`(503)、`MARKET_SOURCE_BAD_RESPONSE`(502)、`MARKET_SOURCE_NOT_CONFIGURED`/`MARKET_SOURCE_DISABLED`(503)、`MARKET_SOURCE_PERMISSION_DENIED`(503)、`MARKET_SOURCE_RATE_LIMITED`(429)；复盘另有 400 区间码、404 日期码及 502/503 源码。供应商原始报文、连接串与 Tushare token 不写日志、不回前端。
 
 Tushare 侧需自行确认账号权限：本机继承的旧 token 实测 `daily`、`daily_basic`、`trade_cal` 可用，`stk_mins` 限每小时 1 次，`stk_auction`、`rt_k`、`fund_daily` 无权限，因此竞价与日内不走 Tushare。新账号开通后无需改代码即可用 `daily`；`stk_auction` 若要接入需新增 provider 与对拍，不能直接假定字段一致。
 
@@ -141,7 +141,7 @@ uv run python tools/project.py identity --identity-action invite-revoke --code-i
 
 ## 前端原型（Open Design）
 
-前端设计原型在 Open Design 桌面应用维护，与本仓库同产品的早期 React 版本。Open Design 没有本地 HTTP/MCP 接口，**只能按数据目录只读访问**：
+前端设计原型在 Open Design 桌面应用维护，与本仓库同产品的早期 React 版本。已安装的 Open Design 提供本地 MCP，可读取原型和发起设计优化；默认使用 Open Design Cloud，切换 Local Codex 或 secure BYOK 需用户明确选择，生成失败时不得自动换模式。只读盘点仍可使用数据目录工具：
 
 ```sh
 uv run python tools/project.py prototype                 # 列出导航入口与视图

@@ -98,9 +98,12 @@ onUnmounted(() => controller?.abort())
     <div class="cards">
       <section class="panel card">
         <span class="eyebrow">01 / 行情</span>
-        <h3>公共数据源已接入</h3>
-        <p>腾讯快照与分钟K线、新浪竞价成交、东方财富竞价曲线、Tushare 日线。</p>
-        <RouterLink class="card__link" to="/market/intraday">盘中研判 →</RouterLink>
+        <h3>历史复盘总览已接入</h3>
+        <p>
+          腾讯快照与分钟K线、新浪竞价成交、东方财富竞价曲线、Tushare
+          日线；旧研究源的共享历史复盘也已接入。页面区分缺失、部分可评估和真实零值。
+        </p>
+        <RouterLink class="card__link" to="/market/overview">行情复盘总览 →</RouterLink>
       </section>
       <section class="panel card">
         <span class="eyebrow">02 / 身份</span>
@@ -118,7 +121,7 @@ onUnmounted(() => controller?.abort())
     <section class="panel">
       <h3>下一步</h3>
       <p>
-        按原型补齐后端模块：模式库、策略与版本、数据集、复盘与决策日志。页面在设计就绪前不显示示例数据。
+        按原型继续补齐涨停明细、情绪周期、策略与版本、数据集和决策日志。页面在设计就绪前不显示示例数据。
       </p>
     </section>
   </div>

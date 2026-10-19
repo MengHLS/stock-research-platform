@@ -4,9 +4,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from research_platform.core.errors import DomainError, ErrorField
+from research_platform.core.errors import DomainError, ErrorField, ErrorResponse
+from research_platform.modules.identity.dependencies import Actor, require_actor
 
 from .market_time import session_phase
+from .review import MarketReviewService
+from .review_schemas import (
+    ReviewContextRead,
+    ReviewDatesRead,
+    ReviewIndicesRead,
+    ReviewOverviewRead,
+)
 from .schemas import (
     AuctionRead,
     DailySeries,
@@ -62,7 +70,16 @@ def market_service(request: Request) -> MarketService:
     return request.app.state.market
 
 
+def review_service(request: Request) -> MarketReviewService:
+    return request.app.state.market_review
+
+
 ServiceDep = Annotated[MarketService, Depends(market_service)]
+ReviewServiceDep = Annotated[MarketReviewService, Depends(review_service)]
+ActorDep = Annotated[Actor, Depends(require_actor)]
+REVIEW_RESPONSES = {
+    502: {"model": ErrorResponse, "description": "Historical review source has bad data"}
+}
 
 
 @router.get(
@@ -139,3 +156,70 @@ def list_sources(service: ServiceDep):
 def get_session():
     """当前交易时段标签（按时钟判断，不代表交易日历）。"""
     return MarketSessionRead(phase=session_phase())
+
+
+@router.get(
+    "/review/dates",
+    response_model=ReviewDatesRead,
+    operation_id="list_market_review_dates",
+    responses=REVIEW_RESPONSES,
+    dependencies=[Depends(require_query(frozenset({"start", "end"})))],
+)
+def list_review_dates(
+    service: ReviewServiceDep,
+    _actor: ActorDep,
+    start: Annotated[date, Query()],
+    end: Annotated[date, Query()],
+):
+    """认证读取旧库历史交易日及各复盘分项的行覆盖状态。"""
+    return service.dates(start, end)
+
+
+@router.get(
+    "/review/context",
+    response_model=ReviewContextRead,
+    operation_id="get_market_review_context",
+    responses=REVIEW_RESPONSES,
+    dependencies=[Depends(require_query(frozenset({"date"})))],
+)
+def get_review_context(
+    service: ReviewServiceDep,
+    _actor: ActorDep,
+    requested_date: Annotated[date | None, Query(alias="date")] = None,
+):
+    """认证读取默认观察日、源内日期边界与前后交易日。"""
+    return service.context(requested_date)
+
+
+@router.get(
+    "/review/overview",
+    response_model=ReviewOverviewRead,
+    operation_id="get_market_review_overview",
+    responses=REVIEW_RESPONSES,
+    dependencies=[Depends(require_query(frozenset({"date", "window"})))],
+)
+def get_review_overview(
+    service: ReviewServiceDep,
+    _actor: ActorDep,
+    trading_day: Annotated[date, Query(alias="date")],
+    window: Annotated[int, Query(ge=1, le=120)] = 20,
+):
+    """认证读取指定交易日的涨停梯队、统计和历史序列。"""
+    return service.overview(trading_day, window)
+
+
+@router.get(
+    "/review/indices",
+    response_model=ReviewIndicesRead,
+    operation_id="get_market_review_indices",
+    responses=REVIEW_RESPONSES,
+    dependencies=[Depends(require_query(frozenset({"date", "window"})))],
+)
+def get_review_indices(
+    service: ReviewServiceDep,
+    _actor: ActorDep,
+    trading_day: Annotated[date, Query(alias="date")],
+    window: Annotated[int, Query(ge=1, le=120)] = 60,
+):
+    """认证读取四指数日线及 MA5/MA20，均线缺口保持 null。"""
+    return service.indices(trading_day, window)

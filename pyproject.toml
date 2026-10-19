@@ -18,7 +18,9 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
+# cryptography 由 pymysql[rsa] 传递引入；测试直接用它生成真实 CA 证书来验证 TLS
+# 上下文，因此显式登记，避免上游去掉该 extra 后测试才在导入期失败。
+dev = ["pytest>=8,<10", "ruff>=0.12,<1", "cryptography>=42,<51"]
 
 [build-system]
 requires = ["hatchling>=1.27"]

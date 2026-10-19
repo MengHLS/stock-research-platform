@@ -137,6 +137,10 @@ def test_business_errors_keep_real_status_and_matching_request_id(client_factory
         ("AUTH_NOT_CONFIGURED", 503),
         ("SERVICE_UNAVAILABLE", 503),
         ("SOURCE_NOT_CONFIGURED", 503),
+        ("MARKET_REVIEW_RANGE_INVALID", 400),
+        ("MARKET_REVIEW_DATE_UNAVAILABLE", 404),
+        ("MARKET_REVIEW_SOURCE_UNAVAILABLE", 503),
+        ("MARKET_REVIEW_SOURCE_BAD_DATA", 502),
         ("DATABASE_UNAVAILABLE", 503),
     ],
 )

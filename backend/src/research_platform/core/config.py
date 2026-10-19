@@ -17,7 +17,12 @@ class MySQLConfig(BaseModel):
     database: str = Field(min_length=1)
     username: str = Field(min_length=1)
     password: SecretStr = Field(min_length=1)
-    tls: Literal["verify", "disabled"] = "verify"
+    # Research-source transport is encrypted by default: "verify" checks the
+    # certificate chain and the hostname, "verify_ca" pins the issuing CA without
+    # hostname matching (MySQL VERIFY_CA semantics), and "disabled" is an explicit
+    # plaintext exception for isolated local use. There is deliberately no
+    # "prefer"-style mode that silently drops verification after a failure.
+    tls: Literal["verify", "verify_ca", "disabled"] = "verify"
     ca_file: Path | None = None
     connect_timeout: int = Field(default=10, ge=1, le=60)
     read_timeout: int = Field(default=60, ge=1, le=600)
@@ -26,8 +31,18 @@ class MySQLConfig(BaseModel):
     def validate_tls(self) -> Self:
         if self.tls == "disabled" and self.ca_file:
             raise ValueError("CA file requires verified TLS")
-        if self.ca_file and not self.ca_file.is_file():
-            raise ValueError("Configured CA file does not exist")
+        if self.ca_file:
+            if not self.ca_file.is_file():
+                raise ValueError("Configured CA file does not exist")
+            try:
+                ssl.create_default_context(cafile=str(self.ca_file))
+            except (ssl.SSLError, OSError) as error:
+                # Startup builds the source engine unconditionally, so an unusable
+                # bundle would abort create_app() with a bare SSLError instead of
+                # reporting a configuration problem.
+                raise ValueError("Configured CA file is not a readable PEM bundle") from error
+        if self.tls == "verify_ca" and not self.ca_file:
+            raise ValueError("TLS=verify_ca requires a pinned CA file")
         return self
 
     def url(self) -> URL:
@@ -43,10 +58,23 @@ class MySQLConfig(BaseModel):
 
     def connect_args(self) -> dict:
         options = {"connect_timeout": self.connect_timeout, "read_timeout": self.read_timeout}
-        if self.tls == "verify":
-            options["ssl"] = ssl.create_default_context(cafile=self.ca_file)
-        else:
+        if self.tls == "disabled":
             options["ssl_disabled"] = True
+            return options
+        context = ssl.create_default_context(cafile=self.ca_file)
+        context.verify_mode = ssl.CERT_REQUIRED
+        if self.tls == "verify_ca":
+            # Match PyMySQL's workaround for auto-generated MySQL certificates.
+            # Only this explicit compatibility mode relaxes RFC 5280 strictness;
+            # default verify retains the interpreter's certificate checks.
+            context.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+            # MySQL 8 auto-generates its server certificate without any
+            # subjectAltName, so hostname matching can never pass against it.
+            # Pinned-CA verification still authenticates the peer and keeps the
+            # channel encrypted; this mirrors MySQL's own VERIFY_CA and, unlike a
+            # "prefer" mode, never falls back to an unverified connection.
+            context.check_hostname = False
+        options["ssl"] = context
         return options
 
 
@@ -72,6 +100,18 @@ class UpstreamConfig(BaseModel):
     # real address for such a host while TLS still verifies against the hostname;
     # it is empty by default so no address is baked into the code.
     host_addresses: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class ReviewConfig(BaseModel):
+    """Bounds for read-only historical market-review queries."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    cache_seconds: int = Field(default=60, ge=0, le=3600)
+    max_window: int = Field(default=120, ge=1, le=120)
+    max_range_days: int = Field(default=366, ge=1, le=366)
+    # Natural-day lookback used to find a board-history gap or reach the limit.
+    lookback_days: int = Field(default=400, ge=121, le=3650)
 
 
 class TushareConfig(BaseModel):
@@ -148,6 +188,7 @@ class Settings(BaseSettings):
     source_mysql: MySQLConfig | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     upstream: UpstreamConfig = UpstreamConfig()
+    review: ReviewConfig = ReviewConfig()
     tushare: TushareConfig | None = None
     object_storage: ObjectStorageConfig | None = None
     auth: AuthConfig | None = None

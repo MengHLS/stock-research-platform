@@ -336,6 +336,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/market/review/dates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Review Dates
+         * @description 认证读取旧库历史交易日及各复盘分项的行覆盖状态。
+         */
+        get: operations["list_market_review_dates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market/review/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Context
+         * @description 认证读取默认观察日、源内日期边界与前后交易日。
+         */
+        get: operations["get_market_review_context"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market/review/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Overview
+         * @description 认证读取指定交易日的涨停梯队、统计和历史序列。
+         */
+        get: operations["get_market_review_overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market/review/indices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Indices
+         * @description 认证读取四指数日线及 MA5/MA20，均线缺口保持 null。
+         */
+        get: operations["get_market_review_indices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -442,6 +522,25 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /**
+         * CoverageRead
+         * @description Row presence, not proof that the source contains every expected row.
+         */
+        CoverageRead: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "missing";
+            /** Row Count */
+            row_count: number;
+            /**
+             * Completeness
+             * @default presence_only
+             * @constant
+             */
+            completeness: "presence_only";
         };
         /** DailyBarRead */
         DailyBarRead: {
@@ -554,6 +653,13 @@ export interface components {
              */
             authentication: "not_configured";
         };
+        /** IndexCoverageRead */
+        IndexCoverageRead: {
+            shanghai: components["schemas"]["CoverageRead"];
+            shenzhen: components["schemas"]["CoverageRead"];
+            csi300: components["schemas"]["CoverageRead"];
+            csi500: components["schemas"]["CoverageRead"];
+        };
         /** IntradaySeries */
         IntradaySeries: {
             /**
@@ -612,6 +718,41 @@ export interface components {
             /** Error Code */
             error_code: string | null;
         };
+        /** LadderRead */
+        LadderRead: {
+            /** Connection */
+            connection: components["schemas"]["LadderRowRead"][];
+            /** First */
+            first: components["schemas"]["LadderRowRead"][];
+            /** Broken */
+            broken: components["schemas"]["LadderRowRead"][];
+            /** Unknown */
+            unknown: components["schemas"]["LadderRowRead"][];
+        };
+        /** LadderRowRead */
+        LadderRowRead: {
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name: string;
+            /** Sector */
+            sector: string;
+            /** Limit Up Time */
+            limit_up_time: string;
+            /** Boards */
+            boards: number | null;
+            /**
+             * Boards As Of Date
+             * Format: date
+             */
+            boards_as_of_date: string;
+            /** Broken Kind */
+            broken_kind?: ("connection" | "first") | null;
+            /** Change Pct */
+            change_pct?: string | null;
+            /** One Word Board */
+            one_word_board?: boolean | null;
+        };
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -622,6 +763,47 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** MarketHistoryRowRead */
+        MarketHistoryRowRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /**
+             * Assessment
+             * @enum {string}
+             */
+            assessment: "available" | "partial" | "missing";
+            /** Total Limit Up */
+            total_limit_up?: number | null;
+            /** First Board Count */
+            first_board_count?: number | null;
+            /** Connection Board Count */
+            connection_board_count?: number | null;
+            /** Max Board */
+            max_board?: number | null;
+            /** Three Board Plus Count */
+            three_board_plus_count?: number | null;
+            /** Emotion Score */
+            emotion_score?: number | null;
+            /** Broken Count */
+            broken_count?: number | null;
+            /** Broken Connection Count */
+            broken_connection_count?: number | null;
+            /** Max Board Stock Total */
+            max_board_stock_total?: number | null;
+            /** Max Board Stocks */
+            max_board_stocks?: components["schemas"]["MaxBoardStockRead"][];
+            /** Unknown Fields */
+            unknown_fields?: string[];
+            /** Turnover 100M Cny */
+            turnover_100m_cny?: string | null;
+            /** Margin Balance 100M Cny */
+            margin_balance_100m_cny?: string | null;
+            /** Themes */
+            themes?: components["schemas"]["ThemeCountRead"][];
+        };
         /** MarketSessionRead */
         MarketSessionRead: {
             /**
@@ -629,6 +811,25 @@ export interface components {
              * @enum {string}
              */
             phase: "opening_auction" | "pre_open" | "continuous" | "lunch_break" | "closed";
+        };
+        /** MaxBoardStockRead */
+        MaxBoardStockRead: {
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name: string;
+        };
+        /** OverviewIndexRead */
+        OverviewIndexRead: {
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name: string;
+            coverage: components["schemas"]["CoverageRead"];
+            /** Close */
+            close?: string | null;
+            /** Change Pct */
+            change_pct?: string | null;
         };
         /**
          * QuoteRead
@@ -712,6 +913,249 @@ export interface components {
             /** Invitation Code */
             invitation_code?: string | null;
         };
+        /** ReviewContextRead */
+        ReviewContextRead: {
+            /**
+             * As Of Date
+             * Format: date
+             */
+            as_of_date: string;
+            /** Default Date */
+            default_date?: string | null;
+            /**
+             * Default Date Reason
+             * @enum {string}
+             */
+            default_date_reason: "latest_limit_up" | "latest_calendar" | "none";
+            /** Requested Date */
+            requested_date?: string | null;
+            /** Requested Date Known */
+            requested_date_known?: boolean | null;
+            /** Calendar Start */
+            calendar_start?: string | null;
+            /** Calendar End */
+            calendar_end?: string | null;
+            /** Latest Limit Up Date */
+            latest_limit_up_date?: string | null;
+            /** Previous Trading Day */
+            previous_trading_day?: string | null;
+            /** Next Trading Day */
+            next_trading_day?: string | null;
+            /** Window Max */
+            window_max: number;
+            /**
+             * Methodology Version
+             * @default market-review-v1
+             * @constant
+             */
+            methodology_version: "market-review-v1";
+        };
+        /** ReviewDateRead */
+        ReviewDateRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            limit_up: components["schemas"]["CoverageRead"];
+            market_wide: components["schemas"]["CoverageRead"];
+            indices: components["schemas"]["IndexCoverageRead"];
+        };
+        /** ReviewDatesRead */
+        ReviewDatesRead: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Calendar Provider
+             * @default legacy.index_daily
+             * @constant
+             */
+            calendar_provider: "legacy.index_daily";
+            /** Dates */
+            dates: components["schemas"]["ReviewDateRead"][];
+            /** Issues */
+            issues: components["schemas"]["ReviewIssueRead"][];
+            /**
+             * Methodology Version
+             * @default market-review-v1
+             * @constant
+             */
+            methodology_version: "market-review-v1";
+        };
+        /** ReviewIndexBarRead */
+        ReviewIndexBarRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Open */
+            open?: string | null;
+            /** High */
+            high?: string | null;
+            /** Low */
+            low?: string | null;
+            /** Close */
+            close?: string | null;
+            /** Change Pct */
+            change_pct?: string | null;
+            /** Ma5 */
+            ma5?: string | null;
+            /** Ma20 */
+            ma20?: string | null;
+            /** Amount Source */
+            amount_source?: string | null;
+            /** Volume Source */
+            volume_source?: string | null;
+        };
+        /** ReviewIndexSeriesRead */
+        ReviewIndexSeriesRead: {
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name: string;
+            coverage: components["schemas"]["CoverageRead"];
+            /** Missing Days */
+            missing_days: number;
+            /** Bars */
+            bars: components["schemas"]["ReviewIndexBarRead"][];
+        };
+        /** ReviewIndicesRead */
+        ReviewIndicesRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Window Requested */
+            window_requested: number;
+            /** Window Actual */
+            window_actual: number;
+            /** History Dates */
+            history_dates: string[];
+            /** Indices */
+            indices: components["schemas"]["ReviewIndexSeriesRead"][];
+            /** Issues */
+            issues: components["schemas"]["ReviewIssueRead"][];
+            methodology: components["schemas"]["ReviewMethodologyRead"];
+        };
+        /** ReviewIssueRead */
+        ReviewIssueRead: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "source_presence_only" | "calendar_derived_from_index_daily" | "target_limit_up_missing" | "previous_limit_up_missing" | "board_history_exhausted" | "stock_quote_missing" | "history_window_truncated" | "index_history_missing";
+            /** Scope */
+            scope: string;
+            /** Message */
+            message: string;
+        };
+        /** ReviewMethodologyRead */
+        ReviewMethodologyRead: {
+            /**
+             * Version
+             * @default market-review-v1
+             * @constant
+             */
+            version: "market-review-v1";
+            /**
+             * Calendar
+             * @default 旧库 index_daily 的不同 tradeDate；不是独立交易日历。
+             */
+            calendar: string;
+            /**
+             * Board Chain
+             * @default 按 index_daily 交易日连续涨停计数；缺口或窗口触顶返回 null。
+             */
+            board_chain: string;
+            /**
+             * Emotion Formula
+             * @default 40×连板家数/涨停家数 + 30×min(最高板/10,1) + 30×三板以上家数/连板家数；四舍五入取整。
+             */
+            emotion_formula: string;
+            /**
+             * Completeness
+             * @default available 仅表示源中存在行，不宣称数据已完整采集。
+             */
+            completeness: string;
+            /**
+             * Market Wide Units
+             * @default market_data.turnover/marginBalance 按旧源亿元口径原样输出。
+             */
+            market_wide_units: string;
+            /**
+             * Index Units
+             * @default index_daily.amount/volume 按旧源原生字段输出，不换单位。
+             */
+            index_units: string;
+        };
+        /** ReviewOverviewRead */
+        ReviewOverviewRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Previous Trading Day */
+            previous_trading_day: string | null;
+            /** Window Requested */
+            window_requested: number;
+            /** Window Actual */
+            window_actual: number;
+            /** Coverage */
+            coverage: {
+                [key: string]: components["schemas"]["CoverageRead"];
+            };
+            summary: components["schemas"]["ReviewSummaryRead"];
+            ladder: components["schemas"]["LadderRead"];
+            /** Themes */
+            themes: components["schemas"]["ThemeCountRead"][];
+            market_wide: components["schemas"]["CoverageRead"];
+            /** Turnover 100M Cny */
+            turnover_100m_cny?: string | null;
+            /** Margin Balance 100M Cny */
+            margin_balance_100m_cny?: string | null;
+            /** Indices */
+            indices: components["schemas"]["OverviewIndexRead"][];
+            /** History */
+            history: components["schemas"]["MarketHistoryRowRead"][];
+            /** Issues */
+            issues: components["schemas"]["ReviewIssueRead"][];
+            methodology: components["schemas"]["ReviewMethodologyRead"];
+        };
+        /** ReviewSummaryRead */
+        ReviewSummaryRead: {
+            /**
+             * Assessment
+             * @enum {string}
+             */
+            assessment: "available" | "partial" | "missing";
+            /** Total Limit Up */
+            total_limit_up?: number | null;
+            /** First Board Count */
+            first_board_count?: number | null;
+            /** Connection Board Count */
+            connection_board_count?: number | null;
+            /** Max Board */
+            max_board?: number | null;
+            /** Three Board Plus Count */
+            three_board_plus_count?: number | null;
+            /** Broken Count */
+            broken_count?: number | null;
+            /** Broken Connection Count */
+            broken_connection_count?: number | null;
+            /** Emotion Score */
+            emotion_score?: number | null;
+        };
         /**
          * SessionRead
          * @description The signed-in view of the current session.
@@ -744,6 +1188,13 @@ export interface components {
             items: components["schemas"]["SourceStatus"][];
             /** Upstream Enabled */
             upstream_enabled: boolean;
+        };
+        /** ThemeCountRead */
+        ThemeCountRead: {
+            /** Theme */
+            theme: string;
+            /** Count */
+            count: number;
         };
         /**
          * UserRead
@@ -2785,6 +3236,493 @@ export interface operations {
             };
             /** @description Unexpected server failure */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_market_review_dates: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewDatesRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Historical review source has bad data */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_market_review_context: {
+        parameters: {
+            query?: {
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewContextRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Historical review source has bad data */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_market_review_overview: {
+        parameters: {
+            query: {
+                date: string;
+                window?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewOverviewRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Historical review source has bad data */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_market_review_indices: {
+        parameters: {
+            query: {
+                date: string;
+                window?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewIndicesRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Historical review source has bad data */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

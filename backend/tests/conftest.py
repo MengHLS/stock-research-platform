@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,13 @@ from research_platform.main import create_app
 from research_platform.modules.identity.dependencies import Actor, require_actor
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def without_ambient_rp_variables(monkeypatch):
+    """Tests set their own RP_* values; _env_file=None alone cannot isolate them."""
+    for name in [key for key in os.environ if key.startswith("RP_")]:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

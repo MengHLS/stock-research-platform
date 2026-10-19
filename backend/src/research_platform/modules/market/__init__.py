@@ -1,1 +1,1 @@
-"""Public market data access: intraday K lines and the opening call auction."""
+"""Public market data and authenticated read-only historical review access."""

@@ -52,9 +52,9 @@ job 是基础设施工作项，不是研究 Run。当前诊断通过不代表策
 
 Vue Router 管页面，Pinia 存会话与界面偏好，服务端数据经 openapi-fetch；界面区分无数据、未认证和连接失败，不用示例数据覆盖失败。
 
-框架按原型（Open Design，见运维“前端原型”）落地：`styles/base.css` 承载设计 token（深色默认、浅色属性覆盖）；`navigation.ts` 是导航单一来源；`routes.ts` 可测，`router.ts` 负责会话守卫；`AppRail`/`AppTopbar` 组成壳层。`implemented: false` 的入口禁用并标“待开发”，路由指向统一的 `PlannedPage`，不伪造页面；登录页在壳层外渲染。
+框架按原型（Open Design，见运维“前端原型”）落地：`styles/base.css` 承载设计 token（深色默认、浅色属性覆盖）；`navigation.ts` 是导航单一来源；`routes.ts` 可测，`router.ts` 负责会话守卫；`AppRail`/`AppTopbar` 组成壳层。`implemented: false` 的入口禁用并标“待开发”，路由指向统一的 `PlannedPage`，不伪造页面。壳层外只渲染登录页与公开的 `/about`：登录页用原型 `auth.html` 的左右分栏，但示例行情预览换成 `PlatformStatus`（只读 `/health/live`、`/api/v1/market/session`、`/api/v1/market/sources` 三个公开接口，失败即显示失败）；原型的演示账号、验证码、第三方登录与找回密码无后端能力，不实现。能力陈述集中在 `product.ts` 供两页共用，`/about` 路线图直接读 `navigation.ts`，两者不会各说一套。
 
-Element Plus 管基础组件，样式 token 管全局主题；ECharts 在真实图表页面接入时再安装。私人数据不放入跨用户共享缓存。
+Element Plus 管基础组件，样式 token 管全局主题。简单趋势、热力和 K 线优先使用与原型 tokens 一致的轻量 SVG，避免通用图表库默认样式破坏页面层级或造成不必要的包体；仅在缩放、复杂组合与大规模交互需要时按实际页面引入图表库。私人数据不放入跨用户共享缓存。
 
 ## 研究工作流与统一结果展示
 
@@ -191,9 +191,10 @@ Element Plus 管基础组件，样式 token 管全局主题；ECharts 在真实�
 | 日内K线 | 腾讯 | `/api/v1/market/intraday` | m1/m5/m15/m30/m60，单次最多约 800 根；无北交所覆盖；09:30 分钟线只含开盘集合竞价 |
 | 竞价 | 新浪撮合 + 东方财富曲线 + 腾讯分笔兜底 | `/api/v1/market/auction` | 09:15–09:25 虚拟撮合曲线（东财）+ 09:25 实际成交（新浪，股数精确，覆盖沪深北/科创/ETF/指数）；东财被反爬拒绝时降级为仅成交并标记 `degraded` |
 | 日线 | Tushare | `/api/v1/market/daily` | 需 token；用于对账与历史，不作为日内来源 |
+| 历史复盘 | 旧研究源（只读） | `/api/v1/market/review/context`、`dates`、`overview`、`indices` | 登录后读取共享历史；默认日/前后交易日、涨停梯队、统计序列、四指数与 MA；覆盖仅为行存在性 |
 | 源状态 | 本服务 | `/api/v1/market/sources` | 各源是否配置及支持能力 |
 
-模块 `modules/market/` 内 `symbols`（标识归一）、各 provider（报文解析与单位换算）、`service`（选源与缓存）、`router`（HTTP）分层；provider 只依赖 `core`。北交所、涨跌停、停牌或“今日无成交”必须是显式错误码或 null，不得返回空数组冒充成功。
+模块 `modules/market/` 内 `symbols`（标识归一）、各 provider（报文解析与单位换算）、`service`（选源与缓存）、`review`（历史口径与纯计算）、`legacy_review_source`（旧表只读适配）、`router`（HTTP）分层；provider 只依赖 `core`。北交所、涨跌停、停牌或“今日无成交”必须是显式错误码或 null，不得返回空数组冒充成功。
 
 ### 标识、单位与时间
 
@@ -211,10 +212,8 @@ Element Plus 管基础组件，样式 token 管全局主题；ECharts 在真实�
 
 ### 不做的部分
 
-日内K线和竞价**暂不落库**（决策 D13）：它们是公共时点数据，当前只服务界面与即时核对。研究需要可复现输入时，必须由后续 datasets 模块冻结快照并记录版本、抓取时间与来源，不能把这里的缓存当作运行记录。真实重试与超时行为需在目标网络环境和供应商限流下另行验收，本地 mock 通过不算。
+日内K线和竞价**暂不落库**（决策 D13）；历史复盘只读旧源、不迁移旧表（决策 D15）。缺失、真实零值和不可评估必须分开：无涨停行、前一日缺口、连板链触顶时板数和情绪分返回 null，覆盖 `available` 只表示源中有行。真实网络、MySQL/TiDB 表结构与数据完整性仍需接入后验收，本地 mock 通过不算。
 
 ## 能力边界
 
-框架本地验证以 SQLite、Node/Python 和 HTTP 冒烟为准。Docker/MySQL、远程 CI、正式部署及旧研究迁移分别验收。生产模式按凭据阻断（缺认证密钥或 cookie 非 Secure 时启动失败），不能只删掉检查就当作通过验收。
-
-错误与关联日志只在本机 API/Worker 验证过；告警阈值、日志聚合、审计留存与跨服务追踪不在本阶段范围。超时与重试规则已按访问类型落地，但真实 MySQL/TiDB 的网络超时行为、网关超时与浏览器超时语义需在接入真实环境时分别对拍，不能用本地通过代替。
+框架本地验证以 SQLite、Node/Python 和 HTTP 冒烟为准；Docker/MySQL、远程 CI、正式部署及旧研究迁移分别验收。生产模式按凭据阻断，不能只删掉检查就当作通过验收。错误与关联日志只在本机 API/Worker 验证过；告警、聚合、审计与跨服务追踪不在本阶段，真实数据库及网关/浏览器超时仍需分别对拍。
