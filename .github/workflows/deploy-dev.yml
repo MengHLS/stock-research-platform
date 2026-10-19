@@ -91,9 +91,25 @@ jobs:
         env:
           ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
           ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
         run: |
           test -n "$ECS_SSH_KEY" || { echo "缺少密钥 ECS_SSH_KEY"; exit 1; }
           test -n "$ECS_HOST" || { echo "缺少密钥 ECS_HOST"; exit 1; }
+          test -n "$ECS_USER" || { echo "缺少密钥 ECS_USER"; exit 1; }
+          # ssh 在连接前自行校验主机名：值里带 @ / 空格 / 换行会直接报
+          # "hostname contains invalid characters" 并以 255 退出，容易被误判成网络问题。
+          case "$ECS_HOST" in
+            *[!A-Za-z0-9.-]*)
+              echo "ECS_HOST 含非法字符：只填 IP 或域名，不要带 root@ 前缀、空格或换行"
+              exit 1
+              ;;
+          esac
+          case "$ECS_USER" in
+            *[!A-Za-z0-9._-]*)
+              echo "ECS_USER 含非法字符：只填登录用户名，例如 root"
+              exit 1
+              ;;
+          esac
           mkdir -p ~/.ssh
           # 私钥经常从 Windows 记事本复制，带 CRLF；SSH 会报 invalid format 并以 255 退出。
           printf '%s\n' "$ECS_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
