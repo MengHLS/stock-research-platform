@@ -12,13 +12,9 @@ name: research-platform-server
 x-api-env: &api-env
   RP_ENVIRONMENT: ${RP_ENVIRONMENT:-development}
   RP_LOG_LEVEL: ${RP_LOG_LEVEL:-INFO}
-  RP_DATABASE_MYSQL__HOST: ${MYSQL_HOST:-mysql}
-  RP_DATABASE_MYSQL__PORT: "3306"
-  RP_DATABASE_MYSQL__DATABASE: ${MYSQL_DATABASE:-research}
-  RP_DATABASE_MYSQL__USERNAME: ${MYSQL_USER:-research}
-  RP_DATABASE_MYSQL__PASSWORD: ${MYSQL_PASSWORD:?deploy/.env 须提供 MYSQL_PASSWORD}
-  # 仅容器网络内通信；既有实例未启用 TLS，公网链路不得沿用此设置。
-  RP_DATABASE_MYSQL__TLS: disabled
+  # 应用库：SQLite，落在 sqlite-data 卷，与本地开发同构。
+  # 必须与研究源分开——config.py 对“应用库与源库同地址”直接拒绝启动。
+  RP_DATABASE_URL: ${RP_DATABASE_URL:-sqlite:////app/data/app.db}
   RP_AUTH__SECRET: ${RP_AUTH__SECRET:?deploy/.env 须提供 RP_AUTH__SECRET}
   # 纯 HTTP 访问时必须为 false，否则浏览器不回传会话 cookie，登录必然失败。
   RP_AUTH__COOKIE_SECURE: ${RP_AUTH__COOKIE_SECURE:-false}
@@ -65,6 +61,8 @@ services:
       start_period: 25s
     stop_grace_period: 20s
     logging: *default-logging
+    volumes:
+      - sqlite-data:/app/data
     networks: [shared]
 
   worker:
@@ -75,6 +73,8 @@ services:
       <<: *api-env
     stop_grace_period: 40s
     logging: *default-logging
+    volumes:
+      - sqlite-data:/app/data
     networks: [shared]
 
   web:
@@ -93,6 +93,9 @@ services:
       start_period: 10s
     logging: *default-logging
     networks: [shared]
+
+volumes:
+  sqlite-data:
 
 networks:
   shared:

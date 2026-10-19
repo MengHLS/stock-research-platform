@@ -84,7 +84,7 @@ require_var() {
   [[ -n "${!name:-}" ]] || die "deploy/.env 缺少 $name"
 }
 
-for var in IMAGE_PREFIX MYSQL_PASSWORD RP_AUTH__SECRET; do
+for var in IMAGE_PREFIX RP_AUTH__SECRET RP_SOURCE_MYSQL_PASSWORD; do
   require_var "$var"
 done
 
