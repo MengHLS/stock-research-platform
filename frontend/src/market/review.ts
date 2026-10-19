@@ -3,6 +3,12 @@ import type { components } from '../api/schema'
 export type ReviewOverview = components['schemas']['ReviewOverviewRead']
 export type ReviewIndices = components['schemas']['ReviewIndicesRead']
 export type ReviewContext = components['schemas']['ReviewContextRead']
+export type ReviewDates = components['schemas']['ReviewDatesRead']
+export type ReviewDate = components['schemas']['ReviewDateRead']
+export type ReviewLimitUp = components['schemas']['ReviewLimitUpRead']
+export type LimitUpReviewRow = components['schemas']['LimitUpReviewRowRead']
+export type LimitUpReviewDay = components['schemas']['LimitUpReviewDayRead']
+export type ReviewStockSeries = components['schemas']['ReviewStockSeriesRead']
 export type ReviewHistoryRow = components['schemas']['MarketHistoryRowRead']
 export type LadderRow = components['schemas']['LadderRowRead']
 export type LadderRead = components['schemas']['LadderRead']
@@ -43,6 +49,14 @@ export interface PriceExtreme {
   date: string
   value: number
   kind: 'high' | 'low'
+}
+
+export interface PriceBar {
+  date: string
+  open?: string | null
+  high?: string | null
+  low?: string | null
+  close?: string | null
 }
 
 export function parseReviewWindow(value: unknown, maximum = 120): ReviewWindow {
@@ -117,18 +131,18 @@ export function emotionRating(score: number | null | undefined): EmotionRating {
   return { label: '冰点', tone: 'down', note: '情绪冰点，等待修复信号' }
 }
 
-export function buildCandleData(
-  bars: IndexSeries['bars'],
-): Array<[number, number, number, number] | null> {
+export function buildCandleData(bars: PriceBar[]): Array<[number, number, number, number] | null> {
   return bars.map((bar) => {
-    if (bar.open === null || bar.close === null || bar.low === null || bar.high === null) {
-      return null
-    }
-    return [Number(bar.open), Number(bar.close), Number(bar.low), Number(bar.high)]
+    const open = chartNumber(bar.open)
+    const close = chartNumber(bar.close)
+    const low = chartNumber(bar.low)
+    const high = chartNumber(bar.high)
+    if (open === null || close === null || low === null || high === null) return null
+    return [open, close, low, high]
   })
 }
 
-export function findPriceExtremes(bars: IndexSeries['bars']): PriceExtreme[] {
+export function findPriceExtremes(bars: PriceBar[]): PriceExtreme[] {
   let highIndex = -1
   let lowIndex = -1
   let highValue: number | null = null

@@ -45,6 +45,7 @@ export const capabilities: readonly Capability[] = [
       '新浪 09:25 成交兜底，股数为精确值',
       'Tushare 日线，需自备 token',
       '历史复盘总览支持日期切换、连板梯队、题材热力与四指数',
+      '全球市场页汇总美股、日韩、半导体、创业板、科创50、黄金与原油',
     ],
   },
   {

@@ -6,21 +6,27 @@ import { buildCandleData, chartNumber, findPriceExtremes, formatNumber } from '.
 import { linePath, sparseAxisIndexes, splitLineSegments } from '../../market/chart'
 import { useChartViewport } from '../../market/useChartViewport'
 
-const props = defineProps<{
-  bars: IndexSeries['bars']
-  selectedDate: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    bars: IndexSeries['bars']
+    selectedDate: string
+    showVolume?: boolean
+  }>(),
+  {
+    showVolume: true,
+  },
+)
 
 const { chartHost, width, revealX, tooltipPosition } = useChartViewport(480, 820)
 const height = 420
 const plotLeft = 12
 const plotRight = 60
 const plotTop = 40
-const priceBottom = 286
+const priceBottom = computed(() => (props.showVolume ? 286 : 382))
 const volumeTop = 318
 const volumeBottom = 382
 const plotWidth = computed(() => width.value - plotLeft - plotRight)
-const plotHeight = priceBottom - plotTop
+const plotHeight = computed(() => priceBottom.value - plotTop)
 const volumeHeight = volumeBottom - volumeTop
 const candleWidth = computed(() =>
   Math.max(2, Math.min(9, (plotWidth.value / Math.max(1, props.bars.length)) * 0.56)),
@@ -74,7 +80,9 @@ function xFor(index: number) {
 
 function yFor(value: number) {
   const { minimum, maximum } = priceRange.value
-  return priceBottom - ((value - minimum) / Math.max(0.0001, maximum - minimum)) * plotHeight
+  return (
+    priceBottom.value - ((value - minimum) / Math.max(0.0001, maximum - minimum)) * plotHeight.value
+  )
 }
 
 const volumeMaximum = computed(() =>
@@ -195,13 +203,13 @@ function moveCursor(step: number) {
       <span><i class="legend-candle" />日 K</span>
       <span><i class="legend-line legend-line--ma5" />MA5</span>
       <span><i class="legend-line legend-line--ma20" />MA20</span>
-      <span><i class="legend-volume" />成交量 · 源单位</span>
+      <span v-if="showVolume"><i class="legend-volume" />成交量 · 源单位</span>
     </div>
     <svg
       class="kline-chart"
       :viewBox="`0 0 ${width} ${height}`"
       role="img"
-      aria-label="指数日 K 线、MA5、MA20 与成交量"
+      :aria-label="showVolume ? '指数日 K 线、MA5、MA20 与成交量' : '指数日 K 线与 MA5、MA20'"
       tabindex="0"
       @pointermove="setHoverFromPointer"
       @pointerleave="hoverIndex = null"
@@ -216,7 +224,7 @@ function moveCursor(step: number) {
         :x="xFor(selectedIndex) - plotWidth / Math.max(1, bars.length) / 2"
         :y="plotTop"
         :width="plotWidth / Math.max(1, bars.length)"
-        :height="volumeBottom - plotTop"
+        :height="(showVolume ? volumeBottom : priceBottom) - plotTop"
       />
 
       <g v-for="tick in ticks" :key="tick">
@@ -280,13 +288,14 @@ function moveCursor(step: number) {
       </g>
 
       <line
+        v-if="showVolume"
         class="volume-divider"
         :x1="plotLeft"
         :x2="width - plotRight"
         :y1="volumeTop - 12"
         :y2="volumeTop - 12"
       />
-      <template v-if="hasVolume">
+      <template v-if="showVolume && hasVolume">
         <text class="axis-title" :x="plotLeft" :y="volumeTop - 2">成交量 · 源单位</text>
         <g v-for="tick in volumeTicks" :key="`volume-tick-${tick}`">
           <line
@@ -316,7 +325,12 @@ function moveCursor(step: number) {
           rx="0.6"
         />
       </template>
-      <text v-else class="volume-empty" :x="(plotLeft + width - plotRight) / 2" :y="volumeTop + 34">
+      <text
+        v-else-if="showVolume"
+        class="volume-empty"
+        :x="(plotLeft + width - plotRight) / 2"
+        :y="volumeTop + 34"
+      >
         该区间没有成交量数据
       </text>
 
@@ -326,7 +340,7 @@ function moveCursor(step: number) {
         :x1="xFor(activeIndex)"
         :x2="xFor(activeIndex)"
         :y1="plotTop"
-        :y2="volumeBottom"
+        :y2="showVolume ? volumeBottom : priceBottom"
       />
 
       <text
@@ -347,7 +361,7 @@ function moveCursor(step: number) {
         :x="plotLeft + (index / Math.max(1, bars.length)) * plotWidth"
         :y="plotTop"
         :width="plotWidth / Math.max(1, bars.length)"
-        :height="volumeBottom - plotTop"
+        :height="(showVolume ? volumeBottom : priceBottom) - plotTop"
         @pointerenter="hoverIndex = index"
       />
     </svg>
@@ -378,7 +392,7 @@ function moveCursor(step: number) {
         <i class="ma20-text">MA20</i>
         <strong>{{ formatNumber(activeBar.ma20, 2) }}</strong>
       </span>
-      <span class="volume-tooltip">
+      <span v-if="showVolume" class="volume-tooltip">
         <i>成交量</i>
         <strong>{{ formatVolume(activeBar.volume_source) }}</strong>
       </span>

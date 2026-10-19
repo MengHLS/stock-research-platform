@@ -147,3 +147,68 @@ class MarketSessionRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phase: Phase
+
+
+GlobalMarketGroup = Literal["us", "asia", "cn", "commodity"]
+GlobalMarketAssessment = Literal["available", "partial", "missing"]
+
+
+class GlobalMarketIssueRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["quote_missing", "history_missing", "history_stale"]
+    scope: str
+    message: str
+
+
+class GlobalMarketQuoteRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    price: Decimal
+    previous_close: Decimal | None = None
+    open: Decimal | None = None
+    high: Decimal | None = None
+    low: Decimal | None = None
+    change: Decimal | None = None
+    change_pct: Decimal | None = Field(default=None, description="Percent: 1 means 1%")
+    quote_time: datetime | None = None
+
+
+class GlobalMarketBarRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    change_pct: Decimal | None = Field(default=None, description="Percent: 1 means 1%")
+
+
+class GlobalMarketItemRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    name: str
+    symbol: str
+    group: GlobalMarketGroup
+    market: str
+    currency: str
+    unit: str
+    precision: int = Field(ge=0, le=4)
+    assessment: GlobalMarketAssessment
+    quote: GlobalMarketQuoteRead | None = None
+    bars: list[GlobalMarketBarRead] = Field(default_factory=list)
+    issues: list[GlobalMarketIssueRead] = Field(default_factory=list)
+
+
+class GlobalMarketOverviewRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["sina", "yahoo", "eastmoney", "mixed"] = "mixed"
+    as_of: datetime | None = None
+    last_synced_at: datetime | None = None
+    stale: bool = False
+    window_requested: int = Field(ge=20, le=120)
+    items: list[GlobalMarketItemRead]
+    methodology: str

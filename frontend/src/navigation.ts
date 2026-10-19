@@ -41,7 +41,14 @@ export const navGroups: NavGroup[] = [
         id: 'limit-up',
         name: '涨停复盘明细',
         icon: 'flame',
-        implemented: false,
+        implemented: true,
+      },
+      {
+        path: '/market/global',
+        id: 'global',
+        name: '全球市场',
+        icon: 'grid',
+        implemented: true,
       },
       {
         path: '/market/sentiment',

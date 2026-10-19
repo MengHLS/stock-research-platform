@@ -14,7 +14,12 @@ provider serves a request, what is cached and how the result is presented.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+import threading
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from research_platform.core.cache import TTLCache
 from research_platform.core.config import Settings
@@ -23,7 +28,10 @@ from research_platform.core.logging import log_event
 from research_platform.core.upstream import UpstreamClient
 
 from .eastmoney import AuctionResult, EastmoneySource
+from .global_source import GlobalMarketSource
+from .global_types import GLOBAL_INSTRUMENTS
 from .market_time import MARKET_TZ, at_market_clock, exchange_now, session_phase
+from .models import GlobalMarketDailyBar, GlobalMarketQuoteSnapshot, utc_now
 from .parsing import parse_day
 from .schemas import (
     AuctionRead,
@@ -31,6 +39,11 @@ from .schemas import (
     BarRead,
     DailyBarRead,
     DailySeries,
+    GlobalMarketBarRead,
+    GlobalMarketIssueRead,
+    GlobalMarketItemRead,
+    GlobalMarketOverviewRead,
+    GlobalMarketQuoteRead,
     IntradaySeries,
     QuoteRead,
     SourceStatus,
@@ -80,6 +93,7 @@ _OPENING_BAR_SCAN = 800
 _DEGRADABLE_CODES = frozenset({"MARKET_SOURCE_UNAVAILABLE", "MARKET_SOURCE_BAD_RESPONSE"})
 # Degradation causes that indicate a broken parser rather than a flaky network.
 _FORMAT_BREAKAGE_CODES = frozenset({"MARKET_SOURCE_BAD_RESPONSE"})
+_GLOBAL_HISTORY_WINDOW = 120
 
 
 class MarketService:
@@ -89,12 +103,15 @@ class MarketService:
         client: UpstreamClient,
         *,
         cache: TTLCache | None = None,
+        global_source: GlobalMarketSource | None = None,
     ) -> None:
         self._settings = settings
         self._cache = cache if cache is not None else TTLCache()
         self._tencent = TencentSource(client)
         self._quotes = TencentQuoteSource(client)
         self._eastmoney = EastmoneySource(client)
+        self._global = global_source or GlobalMarketSource(client)
+        self._global_refresh_lock = threading.Lock()
         self._sina = SinaSource(client)
         self._tushare = TushareSource(client, settings.tushare)
 
@@ -360,6 +377,269 @@ class MarketService:
 
         return self._cache.get_or_create(key, self._settings.upstream.quote_cache_seconds, load)
 
+    def global_overview(self, session: Session, window: int) -> GlobalMarketOverviewRead:
+        """Read the application snapshot, refreshing it when it is stale.
+
+        The database is the availability boundary: a provider outage can only
+        leave the page on a marked older snapshot, not erase previously saved
+        quotes and daily bars.
+        """
+        if window not in {20, 60, 120}:
+            raise DomainError("REQUEST_INVALID")
+
+        last_synced = self._global_last_synced(session)
+        if self._global_is_fresh(last_synced):
+            return self._read_global_snapshot(session, window, stale=False)
+
+        with self._global_refresh_lock:
+            last_synced = self._global_last_synced(session)
+            if self._global_is_fresh(last_synced):
+                return self._read_global_snapshot(session, window, stale=False)
+            try:
+                history_failures = self._refresh_global_snapshot(session)
+            except DomainError as error:
+                session.rollback()
+                if last_synced is None:
+                    raise
+                log_event(
+                    "market.global_snapshot_fallback",
+                    level=(
+                        logging.ERROR if error.code in _FORMAT_BREAKAGE_CODES else logging.WARNING
+                    ),
+                    provider=getattr(self._global, "last_quote_provider", "global"),
+                    reason=error.code,
+                )
+                return self._read_global_snapshot(session, window, stale=True)
+            return self._read_global_snapshot(
+                session,
+                window,
+                stale=bool(history_failures),
+                history_failures=history_failures,
+            )
+
+    def _refresh_global_snapshot(self, session: Session) -> set[str]:
+        quotes = self._global.quotes()
+        if not quotes:
+            raise DomainError("MARKET_DATA_UNAVAILABLE")
+        fetched_at = utc_now()
+        history_failures: set[str] = set()
+
+        for instrument in GLOBAL_INSTRUMENTS:
+            quote = quotes.get(instrument.key)
+            if quote is not None:
+                row = session.get(GlobalMarketQuoteSnapshot, instrument.key)
+                if row is None:
+                    row = GlobalMarketQuoteSnapshot(
+                        instrument_key=instrument.key,
+                        price=quote.price,
+                        provider=quote.provider,
+                        fetched_at=fetched_at,
+                    )
+                    session.add(row)
+                row.price = quote.price
+                row.previous_close = quote.previous_close
+                row.open = quote.open
+                row.high = quote.high
+                row.low = quote.low
+                row.change = quote.change
+                row.change_pct = quote.change_pct
+                row.quote_time = _naive_utc(quote.quote_time)
+                row.provider = quote.provider
+                row.fetched_at = fetched_at
+
+            if not self._global_history_needs_refresh(session, instrument.key):
+                continue
+            try:
+                bars = self._global.history(instrument, _GLOBAL_HISTORY_WINDOW)
+            except DomainError as error:
+                log_event(
+                    "market.global_history_degraded",
+                    level=(
+                        logging.ERROR if error.code in _FORMAT_BREAKAGE_CODES else logging.WARNING
+                    ),
+                    provider=getattr(self._global, "last_history_providers", {}).get(
+                        instrument.key, "global"
+                    ),
+                    instrument=instrument.key,
+                    reason=error.code,
+                )
+                history_failures.add(instrument.key)
+                continue
+            for bar in bars:
+                row = session.get(GlobalMarketDailyBar, (instrument.key, bar.trading_day))
+                if row is None:
+                    row = GlobalMarketDailyBar(
+                        instrument_key=instrument.key,
+                        trading_day=bar.trading_day,
+                        open=bar.open,
+                        high=bar.high,
+                        low=bar.low,
+                        close=bar.close,
+                        fetched_at=fetched_at,
+                    )
+                    session.add(row)
+                row.open = bar.open
+                row.high = bar.high
+                row.low = bar.low
+                row.close = bar.close
+                row.change_pct = bar.change_pct
+                row.fetched_at = fetched_at
+        session.commit()
+        return history_failures
+
+    def _read_global_snapshot(
+        self,
+        session: Session,
+        window: int,
+        *,
+        stale: bool,
+        history_failures: set[str] | frozenset[str] = frozenset(),
+    ) -> GlobalMarketOverviewRead:
+        snapshots = {
+            row.instrument_key: row
+            for row in session.scalars(select(GlobalMarketQuoteSnapshot)).all()
+        }
+        bars_by_key: dict[str, list[GlobalMarketDailyBar]] = {}
+        for row in session.scalars(
+            select(GlobalMarketDailyBar).order_by(
+                GlobalMarketDailyBar.instrument_key,
+                GlobalMarketDailyBar.trading_day,
+            )
+        ).all():
+            bars_by_key.setdefault(row.instrument_key, []).append(row)
+
+        items: list[GlobalMarketItemRead] = []
+        has_stale_history = False
+        for instrument in GLOBAL_INSTRUMENTS:
+            snapshot = snapshots.get(instrument.key)
+            issues: list[GlobalMarketIssueRead] = []
+            if snapshot is None:
+                issues.append(
+                    GlobalMarketIssueRead(
+                        code="quote_missing",
+                        scope=instrument.key,
+                        message="数据库中尚无该标的的报价快照。",
+                    )
+                )
+            saved_bars = bars_by_key.get(instrument.key, [])[-window:]
+            if not saved_bars:
+                issues.append(
+                    GlobalMarketIssueRead(
+                        code="history_missing",
+                        scope=instrument.key,
+                        message="数据库中尚无该标的的日线快照。",
+                    )
+                )
+            history_is_stale = instrument.key in history_failures or (
+                snapshot is not None
+                and bool(saved_bars)
+                and saved_bars[-1].fetched_at < snapshot.fetched_at
+            )
+            if snapshot is not None and saved_bars and history_is_stale:
+                issues.append(
+                    GlobalMarketIssueRead(
+                        code="history_stale",
+                        scope=instrument.key,
+                        message="报价已更新，但日线仍为较早快照。",
+                    )
+                )
+                has_stale_history = True
+            if snapshot is not None and saved_bars and not history_is_stale:
+                assessment = "available"
+            elif snapshot is not None or saved_bars:
+                assessment = "partial"
+            else:
+                assessment = "missing"
+            items.append(
+                GlobalMarketItemRead(
+                    key=instrument.key,
+                    name=instrument.name,
+                    symbol=instrument.symbol,
+                    group=instrument.group,
+                    market=instrument.market,
+                    currency=instrument.currency,
+                    unit=instrument.unit,
+                    precision=instrument.precision,
+                    assessment=assessment,
+                    quote=(
+                        GlobalMarketQuoteRead(
+                            price=_quantize(snapshot.price, instrument.precision),
+                            previous_close=_quantize(snapshot.previous_close, instrument.precision),
+                            open=_quantize(snapshot.open, instrument.precision),
+                            high=_quantize(snapshot.high, instrument.precision),
+                            low=_quantize(snapshot.low, instrument.precision),
+                            change=_quantize(snapshot.change, instrument.precision),
+                            change_pct=_quantize(snapshot.change_pct, 2),
+                            quote_time=_aware_utc(snapshot.quote_time),
+                        )
+                        if snapshot is not None
+                        else None
+                    ),
+                    bars=[
+                        GlobalMarketBarRead(
+                            date=bar.trading_day,
+                            open=_quantize(bar.open, instrument.precision),
+                            high=_quantize(bar.high, instrument.precision),
+                            low=_quantize(bar.low, instrument.precision),
+                            close=_quantize(bar.close, instrument.precision),
+                            change_pct=_quantize(bar.change_pct, 2),
+                        )
+                        for bar in saved_bars
+                    ],
+                    issues=issues,
+                )
+            )
+
+        quote_times = [
+            item.quote.quote_time
+            for item in items
+            if item.quote is not None and item.quote.quote_time is not None
+        ]
+        fetched_times = [row.fetched_at for row in snapshots.values()]
+        quote_providers = {row.provider for row in snapshots.values()}
+        provider = (
+            next(iter(quote_providers))
+            if len(quote_providers) == 1 and quote_providers <= {"sina", "yahoo", "eastmoney"}
+            else "mixed"
+        )
+        return GlobalMarketOverviewRead(
+            provider=provider,
+            as_of=max(quote_times) if quote_times else None,
+            last_synced_at=_aware_utc(max(fetched_times) if fetched_times else None),
+            stale=stale or has_stale_history,
+            window_requested=window,
+            items=items,
+            methodology=(
+                "优先读取应用库最近成功快照；报价优先新浪批量行情，失败时依次尝试雅虎与东方财富。"
+                "日线按标的采用腾讯、新浪、雅虎、Naver 或 Yahoo Japan，均保存供应商原始价格；"
+                "不复权、不补缺失日。中韩半导体使用 513310 ETF 作为可交易代理。"
+            ),
+        )
+
+    def _global_last_synced(self, session: Session) -> datetime | None:
+        return session.scalar(select(func.max(GlobalMarketQuoteSnapshot.fetched_at)))
+
+    def _global_is_fresh(self, last_synced: datetime | None) -> bool:
+        if last_synced is None:
+            return False
+        cutoff = utc_now() - timedelta(
+            seconds=self._settings.upstream.global_overview_refresh_seconds
+        )
+        return last_synced >= cutoff
+
+    def _global_history_needs_refresh(self, session: Session, instrument_key: str) -> bool:
+        last_synced = session.scalar(
+            select(func.max(GlobalMarketDailyBar.fetched_at)).where(
+                GlobalMarketDailyBar.instrument_key == instrument_key
+            )
+        )
+        if last_synced is None:
+            return True
+        cutoff = utc_now() - timedelta(
+            seconds=self._settings.upstream.global_history_refresh_seconds
+        )
+        return last_synced < cutoff
+
     def sources(self) -> SourceStatusList:
         return SourceStatusList(
             items=[
@@ -399,3 +679,25 @@ def _trading_day(result: AuctionResult) -> date:
     if not moments:
         raise DomainError("MARKET_DATA_UNAVAILABLE")
     return max(moments).astimezone(MARKET_TZ).date()
+
+
+def _naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
+
+
+def _aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _quantize(value: Decimal | None, precision: int) -> Decimal | None:
+    if value is None:
+        return None
+    return value.quantize(Decimal(1).scaleb(-precision))

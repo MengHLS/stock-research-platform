@@ -8,6 +8,7 @@ defineProps<{
   windowValue: ReviewWindow
   windowOptions: number[]
   loading: boolean
+  showWindow?: boolean
 }>()
 const emit = defineEmits<{
   date: [date: string]
@@ -29,11 +30,11 @@ function chooseWindow(event: Event) {
 </script>
 
 <template>
-  <div class="controls">
+  <div class="controls" :aria-busy="loading">
     <div class="date-stepper">
       <button
         type="button"
-        :disabled="!context?.previous_trading_day"
+        :disabled="loading || !context?.previous_trading_day"
         aria-label="前一交易日"
         @click="emit('previous')"
       >
@@ -44,20 +45,23 @@ function chooseWindow(event: Event) {
         :value="value"
         :min="context?.calendar_start ?? undefined"
         :max="context?.calendar_end ?? undefined"
+        :disabled="loading"
         aria-label="观察日"
         @change="chooseDate"
       />
       <button
         type="button"
-        :disabled="!context?.next_trading_day"
+        :disabled="loading || !context?.next_trading_day"
         aria-label="后一交易日"
         @click="emit('next')"
       >
         <AppIcon name="chevron-right" :size="15" />
       </button>
     </div>
-    <button type="button" class="button" @click="emit('latest')">最近有记录日</button>
-    <label class="window-control">
+    <button type="button" class="button" :disabled="loading" @click="emit('latest')">
+      最近有记录日
+    </button>
+    <label v-if="showWindow !== false" class="window-control">
       <span>窗口</span>
       <select :value="windowValue" @change="chooseWindow">
         <option v-for="option in windowOptions" :key="option" :value="option">
@@ -73,7 +77,7 @@ function chooseWindow(event: Event) {
       @click="emit('reload')"
     >
       <AppIcon name="refresh" :size="14" />
-      {{ loading ? '读取中' : '刷新' }}
+      刷新
     </button>
   </div>
 </template>
@@ -98,7 +102,7 @@ function chooseWindow(event: Event) {
 
 .date-stepper button,
 .button {
-  height: 29px;
+  height: 34px;
   border: 1px solid var(--border);
   background: var(--surface2);
   color: var(--fg2);
@@ -132,20 +136,20 @@ function chooseWindow(event: Event) {
 
 .date-stepper input {
   width: 124px;
-  height: 29px;
+  height: 34px;
   padding: 0 7px;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--fg);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12.5px;
 }
 
 .button {
   padding: 0 9px;
   border-radius: var(--radius-sm);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .button--icon {
@@ -157,13 +161,13 @@ function chooseWindow(event: Event) {
 .window-control {
   display: inline-flex;
   align-items: center;
-  height: 29px;
+  height: 34px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface2);
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .window-control span {
@@ -172,20 +176,32 @@ function chooseWindow(event: Event) {
 }
 
 .window-control select {
-  height: 27px;
+  height: 32px;
   padding: 0 7px;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--fg2);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 @media (max-width: 760px) {
   .controls {
     justify-content: flex-start;
     width: 100%;
+  }
+
+  .date-stepper,
+  .date-stepper button,
+  .date-stepper input,
+  .button,
+  .window-control {
+    height: 44px;
+  }
+
+  .date-stepper button {
+    width: 44px;
   }
 }
 </style>

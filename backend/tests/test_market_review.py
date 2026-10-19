@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -19,6 +20,7 @@ from research_platform.modules.market.review import (
     MarketReviewService,
     MarketWideRow,
     ReviewDateCoverage,
+    StockBar,
     StockQuote,
 )
 
@@ -62,6 +64,7 @@ class FakeReviewSource:
         if not self.days or self.days[0] > date(2026, 9, 15):
             self.days = sorted({date(2026, 9, 15), *self.days})
         self.quote_calls = 0
+        self.stock_bar_calls = 0
 
     def trading_days(self, start: date, end: date) -> list[date]:
         return [day for day in self.days if start <= day <= end]
@@ -115,6 +118,14 @@ class FakeReviewSource:
         return [row for row in self.records if start <= row.trading_day <= end]
 
     def stock_quotes(self, trading_day: date, symbols: list[str]) -> list[StockQuote]:
+        return self.stock_quotes_range(trading_day, trading_day, symbols)
+
+    def stock_quotes_range(
+        self,
+        start: date,
+        end: date,
+        symbols: list[str],
+    ) -> list[StockQuote]:
         self.quote_calls += 1
         return [
             StockQuote(
@@ -123,7 +134,24 @@ class FakeReviewSource:
                 change_pct=Decimal("10.00") if symbol == "000001.SZ" else Decimal("-2.50"),
                 one_word_board=symbol == "000001.SZ",
             )
+            for trading_day in self.days
+            if start <= trading_day <= end
             for symbol in symbols
+        ]
+
+    def stock_bars_range(self, start: date, end: date, symbol: str) -> list[StockBar]:
+        self.stock_bar_calls += 1
+        return [
+            StockBar(
+                trading_day=day,
+                symbol=symbol,
+                open=Decimal("10.00") + Decimal(offset),
+                high=Decimal("10.50") + Decimal(offset),
+                low=Decimal("9.80") + Decimal(offset),
+                close=Decimal("10.20") + Decimal(offset),
+                previous_close=Decimal("10.00") + Decimal(offset),
+            )
+            for offset, day in enumerate(day for day in self.days if start <= day <= end)
         ]
 
     def market_wide_rows(self, start: date, end: date) -> list[MarketWideRow]:
@@ -203,6 +231,156 @@ def test_history_rows_are_bounded_and_use_only_data_at_or_before_each_day():
     assert overview.history[1].max_board_stocks[0].symbol == "000001.SZ"
     assert overview.window_requested == 2
     assert overview.window_actual == 2
+
+
+def test_limit_up_detail_returns_current_and_broken_rows_across_window():
+    source = FakeReviewSource()
+    result = service(source).limit_up(date(2026, 9, 18), 2)
+
+    assert result.window_requested == 2
+    assert result.window_actual == 2
+    assert [day.date for day in result.days] == [date(2026, 9, 17), date(2026, 9, 18)]
+    assert result.days[0].total_limit_up == 4
+    assert result.days[0].broken_count == 0
+    assert result.days[1].total_limit_up == 3
+    assert result.days[1].broken_count == 3
+    current = [
+        row for row in result.rows if row.date == date(2026, 9, 18) and row.status == "limit_up"
+    ]
+    broken = [
+        row for row in result.rows if row.date == date(2026, 9, 18) and row.status == "broken"
+    ]
+    assert {row.symbol for row in current} == {"000001.SZ", "000002.SZ", "000003.SZ"}
+    assert [(row.symbol, row.boards, row.boards_as_of_date) for row in broken] == [
+        ("000004.SZ", 2, date(2026, 9, 17)),
+        ("000005.SZ", 1, date(2026, 9, 17)),
+        ("000006.SZ", 1, date(2026, 9, 17)),
+    ]
+    assert all(row.change_pct == Decimal("-2.50") for row in broken)
+    assert all(row.one_word_board is None for row in broken)
+    assert all(row.limit_up_time_as_of_date == row.boards_as_of_date for row in broken)
+    assert source.quote_calls == 1
+
+
+def test_limit_up_detail_keeps_missing_days_unknown_instead_of_zero():
+    source = FakeReviewSource([record("000001.SZ", "2026-09-17")])
+    source.days = [date(2026, 9, 17), date(2026, 9, 18)]
+
+    result = service(source).limit_up(date(2026, 9, 18), 2)
+
+    assert result.days[1].assessment == "missing"
+    assert result.days[1].total_limit_up is None
+    assert result.days[1].limit_up.status == "missing"
+    assert {issue.code for issue in result.issues} >= {"target_limit_up_missing"}
+    assert {row.date for row in result.rows} == {date(2026, 9, 17)}
+
+
+def test_stock_series_canonicalizes_symbol_and_returns_real_candles():
+    source = FakeReviewSource()
+    source.days = [
+        date(2026, 9, 14),
+        date(2026, 9, 15),
+        date(2026, 9, 16),
+        date(2026, 9, 17),
+        date(2026, 9, 18),
+    ]
+
+    result = service(source).stock_series("sz000001", date(2026, 9, 18), 5)
+
+    assert result.symbol == "000001.SZ"
+    assert result.window_requested == 5
+    assert result.window_actual == 5
+    assert result.coverage.row_count == 5
+    assert [bar.date for bar in result.bars] == source.days
+    assert all(
+        bar.open is not None
+        and bar.high is not None
+        and bar.low is not None
+        and bar.close is not None
+        for bar in result.bars
+    )
+    assert result.bars[0].ma5 is None
+    assert result.bars[-1].ma5 is not None
+    assert result.bars[-1].ma20 is None
+    assert source.stock_bar_calls == 1
+
+
+def test_stock_series_preserves_gaps_and_uses_hidden_history_for_moving_averages():
+    class GappedSource(FakeReviewSource):
+        def stock_bars_range(self, start, end, symbol):
+            return [
+                bar
+                for bar in super().stock_bars_range(start, end, symbol)
+                if bar.trading_day != self.days[-2]
+            ]
+
+    source = GappedSource()
+    source.days = [
+        date(2026, 8, 3) + timedelta(days=offset)
+        for offset in range(47)
+        if (date(2026, 8, 3) + timedelta(days=offset)).weekday() < 5
+    ]
+    result = service(source).stock_series("000001.SZ", source.days[-1], 2)
+    assert result.window_actual == 2
+    assert result.missing_days == 1
+    assert result.coverage.row_count == 1
+    assert result.bars[0].close is None
+    assert result.bars[1].ma5 is None
+    assert result.bars[1].ma20 is None
+    assert result.bars[1].change_pct is not None
+    assert "stock_history_missing" in {issue.code for issue in result.issues}
+
+    complete = FakeReviewSource()
+    complete.days = source.days
+    target = complete.days[-2]
+    series = service(complete).stock_series("000001.SZ", target, 1)
+    assert [bar.date for bar in series.bars] == [target]
+    assert series.bars[0].ma20 == Decimal("19.70")
+
+
+@pytest.mark.parametrize(
+    "defect",
+    ["duplicate", "wrong_symbol", "non_finite", "inverted", "negative_previous", "extreme"],
+)
+def test_stock_series_rejects_bad_source_data(defect):
+    class BadSource(FakeReviewSource):
+        def stock_bars_range(self, start, end, symbol):
+            bars = super().stock_bars_range(start, end, symbol)
+            if defect == "duplicate":
+                return [*bars, bars[-1]]
+            if defect == "wrong_symbol":
+                return [replace(bars[-1], symbol="000002.SZ")]
+            if defect == "inverted":
+                return [replace(bars[-1], high=Decimal("8"), low=Decimal("12"))]
+            if defect == "negative_previous":
+                return [replace(bars[-1], previous_close=Decimal("-10"))]
+            if defect == "extreme":
+                return [
+                    replace(
+                        bars[-1],
+                        open=Decimal("1E100"),
+                        high=Decimal("1E100"),
+                        low=Decimal("1E100"),
+                        close=Decimal("1E100"),
+                    )
+                ]
+            return [replace(bars[-1], close=Decimal("NaN"))]
+
+    with pytest.raises(DomainError) as failure:
+        service(BadSource()).stock_series("000001.SZ", date(2026, 9, 18), 2)
+    assert failure.value.code == "MARKET_REVIEW_SOURCE_BAD_DATA"
+
+
+def test_stock_series_counts_partial_source_rows_as_present():
+    class PartialSource(FakeReviewSource):
+        def stock_bars_range(self, start, end, symbol):
+            return [replace(bar, open=None) for bar in super().stock_bars_range(start, end, symbol)]
+
+    result = service(PartialSource()).stock_series("000001.SZ", date(2026, 9, 18), 2)
+    assert result.coverage.status == "available"
+    assert result.coverage.row_count == 2
+    assert result.missing_days == 2
+    assert all(bar.open is None and bar.close is not None for bar in result.bars)
 
 
 def test_missing_previous_limit_records_leave_board_metrics_unknown():
@@ -446,7 +624,8 @@ def test_legacy_source_reads_reviewed_columns_from_sqlite():
             text(
                 """
                 INSERT INTO stock_daily_prices VALUES
-                ('000001.SZ', '2026-09-18', '10', '10', '10', '10', '9')
+                ('000001.SZ', '2026-09-18', '10', '10', '10', '10', '9'),
+                ('000002.SZ', '2026-09-18', '10', '10', '10', '9', '10')
                 """
             )
         )
@@ -468,6 +647,19 @@ def test_legacy_source_reads_reviewed_columns_from_sqlite():
     quote = source.stock_quotes(date(2026, 9, 18), ["000001.SZ"])[0]
     assert quote.change_pct == Decimal("11.11111111111111111111111111")
     assert quote.one_word_board is True
+    down_quote = source.stock_quotes(date(2026, 9, 18), ["000002.SZ"])[0]
+    assert down_quote.one_word_board is False
+    stock_bar = source.stock_bars_range(
+        date(2026, 9, 18),
+        date(2026, 9, 18),
+        "000001.SZ",
+    )[0]
+    assert (stock_bar.open, stock_bar.high, stock_bar.low, stock_bar.close) == (
+        Decimal("10.0"),
+        Decimal("10.0"),
+        Decimal("10.0"),
+        Decimal("10.0"),
+    )
     market = source.market_wide_rows(date(2026, 9, 18), date(2026, 9, 18))[0]
     assert market.turnover_100m_cny == Decimal("12000.5")
     index = source.index_rows(date(2026, 9, 18), date(2026, 9, 18), ["000001.SH"])[0]
@@ -520,12 +712,24 @@ def test_review_api_is_shared_across_actors_and_returns_decimal_strings(database
                 "/api/v1/market/review/overview",
                 params={"date": "2026-09-18", "window": 4},
             )
+            limit_up = client.get(
+                "/api/v1/market/review/limit-up",
+                params={"date": "2026-09-18", "window": 2},
+            )
+            stock_series = client.get(
+                "/api/v1/market/review/stock-series",
+                params={"symbol": "000001.SZ", "date": "2026-09-18", "window": 4},
+            )
         assert response.status_code == 200
+        assert limit_up.status_code == 200
+        assert stock_series.status_code == 200
         body = response.json()
         assert body["summary"]["emotion_score"] == 52
         assert body["ladder"]["connection"][0]["change_pct"] == "10.00"
         assert body["turnover_100m_cny"] == "12000.50"
         assert body["methodology"]["version"] == "market-review-v1"
+        assert limit_up.json()["window_actual"] == 2
+        assert stock_series.json()["bars"][-1]["close"] == "13.20"
 
 
 def test_review_api_dates_and_indices_contract(database_url):
@@ -544,6 +748,14 @@ def test_review_api_dates_and_indices_contract(database_url):
             "/api/v1/market/review/context",
             params={"date": "2026-09-18"},
         )
+        limit_up = client.get(
+            "/api/v1/market/review/limit-up",
+            params={"date": "2026-09-18", "window": 2},
+        )
+        stock_series = client.get(
+            "/api/v1/market/review/stock-series",
+            params={"symbol": "000001.SZ", "date": "2026-09-18", "window": 4},
+        )
     assert dates.status_code == 200
     assert dates.json()["dates"][-1]["limit_up"]["completeness"] == "presence_only"
     assert indices.status_code == 200
@@ -552,6 +764,12 @@ def test_review_api_dates_and_indices_contract(database_url):
     assert context.json()["requested_date_known"] is True
     assert context.json()["window_max"] == 120
     assert "502" in schema["paths"]["/api/v1/market/review/indices"]["get"]["responses"]
+    assert limit_up.status_code == 200
+    assert limit_up.json()["rows"][0]["boards_as_of_date"] is not None
+    assert "502" in schema["paths"]["/api/v1/market/review/limit-up"]["get"]["responses"]
+    assert stock_series.status_code == 200
+    assert stock_series.json()["missing_days"] == 0
+    assert "502" in schema["paths"]["/api/v1/market/review/stock-series"]["get"]["responses"]
     assert [item["symbol"] for item in indices.json()["indices"]] == [
         "000001.SH",
         "399001.SZ",

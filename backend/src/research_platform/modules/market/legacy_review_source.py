@@ -21,6 +21,7 @@ from .review import (
     MarketWideRow,
     ReviewDateCoverage,
     ReviewSourceDataError,
+    StockBar,
     StockQuote,
 )
 
@@ -214,6 +215,14 @@ class LegacyMarketReviewSource:
         return self._safe(load, "limit_up_records")
 
     def stock_quotes(self, trading_day: date, symbols: list[str]) -> list[StockQuote]:
+        return self.stock_quotes_range(trading_day, trading_day, symbols)
+
+    def stock_quotes_range(
+        self,
+        start: date,
+        end: date,
+        symbols: list[str],
+    ) -> list[StockQuote]:
         def load() -> list[StockQuote]:
             if not symbols:
                 return []
@@ -222,10 +231,15 @@ class LegacyMarketReviewSource:
                 SELECT stockCode, tradeDate, openPrice, highPrice, lowPrice,
                        closePrice, preClosePrice
                 FROM stock_daily_prices
-                WHERE tradeDate = :day AND stockCode IN :symbols
-                ORDER BY stockCode
+                WHERE tradeDate >= :start AND tradeDate <= :end
+                  AND stockCode IN :symbols
+                ORDER BY tradeDate, stockCode
                 """,
-                {"day": trading_day.isoformat(), "symbols": symbols},
+                {
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "symbols": symbols,
+                },
                 expanding=("symbols",),
             )
             result: list[StockQuote] = []
@@ -247,14 +261,55 @@ class LegacyMarketReviewSource:
                         change_pct=change_pct,
                         one_word_board=(
                             open_price == high == low
-                            if open_price is not None and high is not None and low is not None
+                            and close is not None
+                            and previous is not None
+                            and close > previous
+                            if (
+                                open_price is not None
+                                and high is not None
+                                and low is not None
+                                and close is not None
+                                and previous is not None
+                            )
                             else None
                         ),
                     )
                 )
             return result
 
-        return self._safe(load, "stock_quotes")
+        return self._safe(load, "stock_quotes_range")
+
+    def stock_bars_range(self, start: date, end: date, symbol: str) -> list[StockBar]:
+        def load() -> list[StockBar]:
+            rows = self._query(
+                """
+                SELECT stockCode, tradeDate, openPrice, highPrice, lowPrice,
+                       closePrice, preClosePrice
+                FROM stock_daily_prices
+                WHERE tradeDate >= :start AND tradeDate <= :end
+                  AND stockCode = :symbol
+                ORDER BY tradeDate
+                """,
+                {
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "symbol": symbol,
+                },
+            )
+            return [
+                StockBar(
+                    trading_day=_date(row["tradeDate"]),
+                    symbol=_text_required(row["stockCode"]),
+                    open=_decimal_optional(row["openPrice"]),
+                    high=_decimal_optional(row["highPrice"]),
+                    low=_decimal_optional(row["lowPrice"]),
+                    close=_decimal_optional(row["closePrice"]),
+                    previous_close=_decimal_optional(row["preClosePrice"]),
+                )
+                for row in rows
+            ]
+
+        return self._safe(load, "stock_bars_range")
 
     def market_wide_rows(self, start: date, end: date) -> list[MarketWideRow]:
         def load() -> list[MarketWideRow]:

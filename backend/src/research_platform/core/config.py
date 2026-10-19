@@ -90,6 +90,8 @@ class UpstreamConfig(BaseModel):
     min_interval_ms: int = Field(default=200, ge=0, le=5000)
     quote_cache_seconds: int = Field(default=5, ge=0, le=300)
     intraday_cache_seconds: int = Field(default=30, ge=0, le=3600)
+    global_overview_refresh_seconds: int = Field(default=60, ge=0, le=3600)
+    global_history_refresh_seconds: int = Field(default=3600, ge=0, le=7 * 24 * 3600)
     # Optional per-host address override, e.g. {"push2his.eastmoney.com": ["119.3.232.150"]}.
     #
     # Local proxies in fake-ip mode answer DNS with an address from 198.18.0.0/15

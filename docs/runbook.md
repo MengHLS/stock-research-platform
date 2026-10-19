@@ -67,7 +67,7 @@ db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 
 
 旧项目使用 DATABASE_URL、TUSHARE_TOKEN 及 MINIO_*，它们不自动继承；旧 Node mysql URL 的 ssl JSON 参数不能直接搬给 PyMySQL：旧工程用 `ssl={"rejectUnauthorized":false}`（加密但不校验证书），本工程对应应选 verify_ca 并固定其 CA，选 verify 会因主机名不匹配而失败。历史复盘只读 `index_daily`（交易日/四指数）、`limit_up_records`（涨停记录）、`stock_daily_prices`（梯队行情）和 `market_data`（成交额/两融，旧源亿元口径），不绑定应用 ORM、不迁移旧表。
 
-源库首次接入前需确认真实库位置与上述表范围、独立只读账号、TLS/CA、网络白名单和快照版本；只做授权的连通/结构检查。登录后总览页调用 `context`（默认日/前后日）、`dates`（区间≤366 日）、`overview` 与 `indices`（窗口≤120 交易日）；`RP_REVIEW__*` 控制缓存、窗口和连板回溯。源库未配时接口返回 `SOURCE_NOT_CONFIGURED`。覆盖 `available/completeness=presence_only` 只表示源中存在行；无涨停行、前一日缺口、连板链触顶时相关值为 null 并带稳定 issue，不填 0。坏数据 502 `MARKET_REVIEW_SOURCE_BAD_DATA`，SQL/表不可用 503 `MARKET_REVIEW_SOURCE_UNAVAILABLE`，非交易日 404。当前页面已用本地假数据完成视觉与交互检查；四张旧表的真实表结构、行数及日期极值已核实（逐表基线见[决策 D15](decisions.md#d15--历史复盘首版只读旧源并显式表达缺失)，各表日期范围不同且不保证区间完整），但只读权限（本机为临时豁免的全权账号）、数据完整性、性能与采集补数仍未验收。
+源库首次接入前需确认真实库位置与上述表范围、独立只读账号、TLS/CA、网络白名单和快照版本；只做授权的连通/结构检查。登录后总览页调用 `context`（默认日/前后日）、`dates`（区间≤366 日）、`overview`、`indices`、`limit-up` 与 `stock-series`（窗口≤120 交易日）；`RP_REVIEW__*` 控制缓存、窗口和连板回溯。源库未配时接口返回 `SOURCE_NOT_CONFIGURED`。覆盖 `available/completeness=presence_only` 只表示源中存在行；无涨停行、前一日缺口、连板链触顶或个股日线缺失时相关值为 null 并带稳定 issue，不填 0。坏数据 502 `MARKET_REVIEW_SOURCE_BAD_DATA`，SQL/表不可用 503 `MARKET_REVIEW_SOURCE_UNAVAILABLE`，非交易日 404。当前页面已用本地假数据完成视觉与交互检查；四张旧表的真实表结构、行数及日期极值已核实（逐表基线见[决策 D15](decisions.md#d15--历史复盘首版只读旧源并显式表达缺失)，各表日期范围不同且不保证区间完整），但只读权限（本机为临时豁免的全权账号）、数据完整性、性能与采集补数仍未验收。
 
 ## 公共行情数据源
 
@@ -76,6 +76,7 @@ db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 
 | 接口 | 来源 | 说明 |
 |---|---|---|
 | `GET /api/v1/market/quote` | 腾讯 | 实时快照：最新价/昨收/涨跌停/行情时间；覆盖沪深北与指数，盘前竞价时段也可读 |
+| `GET /api/v1/market/global/overview` | 新浪/雅虎/腾讯/Naver + 应用库 | 登录后读取跨市场概览，`window=20|60|120`；应用库优先，过期时刷新，失败回退最近快照并标记 `stale` |
 | `GET /api/v1/market/intraday` | 腾讯 | `symbol`、`period=m1|m5|m15|m30|m60`、`limit<=800`；无北交所 |
 | `GET /api/v1/market/auction` | 东财曲线 + 新浪成交 | 09:15–09:25 虚拟撮合曲线来自东财（`push2`/`push2his` 多主机轮换）；09:25 实际成交优先东财，降级时来自新浪（沪深北/科创/ETF/指数全覆盖、股数精确）。全部失败时 `degraded=true`、`snapshots=[]`，前端必须显示降级状态 |
 | `GET /api/v1/market/daily` | Tushare | `symbol`、可选 `start`/`end`（YYYY-MM-DD） |

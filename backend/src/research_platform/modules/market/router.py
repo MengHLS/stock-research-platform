@@ -3,7 +3,9 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.orm import Session
 
+from research_platform.core.database import session_dependency
 from research_platform.core.errors import DomainError, ErrorField, ErrorResponse
 from research_platform.modules.identity.dependencies import Actor, require_actor
 
@@ -13,11 +15,14 @@ from .review_schemas import (
     ReviewContextRead,
     ReviewDatesRead,
     ReviewIndicesRead,
+    ReviewLimitUpRead,
     ReviewOverviewRead,
+    ReviewStockSeriesRead,
 )
 from .schemas import (
     AuctionRead,
     DailySeries,
+    GlobalMarketOverviewRead,
     IntradaySeries,
     MarketSessionRead,
     Period,
@@ -77,6 +82,7 @@ def review_service(request: Request) -> MarketReviewService:
 ServiceDep = Annotated[MarketService, Depends(market_service)]
 ReviewServiceDep = Annotated[MarketReviewService, Depends(review_service)]
 ActorDep = Annotated[Actor, Depends(require_actor)]
+SessionDep = Annotated[Session, Depends(session_dependency)]
 REVIEW_RESPONSES = {
     502: {"model": ErrorResponse, "description": "Historical review source has bad data"}
 }
@@ -159,6 +165,22 @@ def get_session():
 
 
 @router.get(
+    "/global/overview",
+    response_model=GlobalMarketOverviewRead,
+    operation_id="get_global_market_overview",
+    dependencies=[Depends(require_query(frozenset({"window"})))],
+)
+def get_global_market_overview(
+    service: ServiceDep,
+    _actor: ActorDep,
+    session: SessionDep,
+    window: Annotated[int, Query(ge=20, le=120)] = 60,
+):
+    """认证读取跨市场指数、半导体与商品报价及日线趋势。"""
+    return service.global_overview(session, window)
+
+
+@router.get(
     "/review/dates",
     response_model=ReviewDatesRead,
     operation_id="list_market_review_dates",
@@ -223,3 +245,38 @@ def get_review_indices(
 ):
     """认证读取四指数日线及 MA5/MA20，均线缺口保持 null。"""
     return service.indices(trading_day, window)
+
+
+@router.get(
+    "/review/stock-series",
+    response_model=ReviewStockSeriesRead,
+    operation_id="get_market_review_stock_series",
+    responses=REVIEW_RESPONSES,
+    dependencies=[Depends(require_query(frozenset({"symbol", "date", "window"})))],
+)
+def get_review_stock_series(
+    service: ReviewServiceDep,
+    _actor: ActorDep,
+    symbol: SymbolQuery,
+    trading_day: Annotated[date, Query(alias="date")],
+    window: Annotated[int, Query(ge=1, le=120)] = 60,
+):
+    """认证读取单只股票的日 K 与 MA；缺失日保持 null。"""
+    return service.stock_series(symbol, trading_day, window)
+
+
+@router.get(
+    "/review/limit-up",
+    response_model=ReviewLimitUpRead,
+    operation_id="get_market_review_limit_up",
+    responses=REVIEW_RESPONSES,
+    dependencies=[Depends(require_query(frozenset({"date", "window"})))],
+)
+def get_review_limit_up(
+    service: ReviewServiceDep,
+    _actor: ActorDep,
+    trading_day: Annotated[date, Query(alias="date")],
+    window: Annotated[int, Query(ge=1, le=120)] = 30,
+):
+    """认证读取指定观察日及其窗口内的涨停与断板明细。"""
+    return service.limit_up(trading_day, window)

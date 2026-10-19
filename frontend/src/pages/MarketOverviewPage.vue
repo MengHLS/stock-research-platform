@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AppIcon from '../components/AppIcon'
@@ -12,24 +12,20 @@ import MarketReviewControls from '../components/market/MarketReviewControls.vue'
 import MarketSummaryPanel from '../components/market/MarketSummaryPanel.vue'
 import MarketThemeHeatmap from '../components/market/MarketThemeHeatmap.vue'
 import ReviewDrawer from '../components/market/ReviewDrawer.vue'
+import StockDetailContent from '../components/market/StockDetailContent.vue'
 import { api, callApi } from '../api/client'
 import { isAuthNotConfigured, type ApiFailure } from '../api/errors'
 import { useReviewDetail } from '../market/useReviewDetail'
 import type {
   LadderRow,
+  LimitUpReviewRow,
   ReviewContext,
   ReviewIndices,
+  ReviewLimitUp,
   ReviewOverview,
   ReviewWindow,
 } from '../market/review'
-import {
-  compareClass,
-  formatSignedPercent,
-  mergeLadderRows,
-  parseReviewWindow,
-  previousHistory,
-  routeDate,
-} from '../market/review'
+import { mergeLadderRows, parseReviewWindow, previousHistory, routeDate } from '../market/review'
 
 type DrawerKind = 'index' | 'theme' | 'day' | 'stock'
 
@@ -50,16 +46,25 @@ const localDateError = ref('')
 const reloadKey = ref(0)
 
 const drawerKind = ref<DrawerKind | null>(null)
+const drawer = ref<InstanceType<typeof ReviewDrawer> | null>(null)
 const drawerDate = ref('')
 const drawerTheme = ref('')
 const drawerIndexSymbol = ref('')
-const drawerStock = ref<LadderRow | null>(null)
+const drawerStock = ref<LimitUpReviewRow | null>(null)
+const stockSource = ref<LadderRow | null>(null)
+const stockPeerRows = ref<LimitUpReviewRow[]>([])
+const stockRowsLoading = ref(false)
+const stockRowsFailure = ref<ApiFailure | null>(null)
+const stockRowsMessage = ref('')
+const notes = reactive<Record<string, string>>({})
 const detail = useReviewDetail()
 const { data: drawerOverview, loading: drawerLoading, failure: drawerFailure } = detail
 const returnTo = ref<{ kind: 'theme' | 'day'; date: string; theme?: string } | null>(null)
 
 let requestController: AbortController | null = null
 let requestSequence = 0
+let stockRowsController: AbortController | null = null
+let stockRowsSequence = 0
 
 const maximumWindow = computed(() => context.value?.window_max ?? 120)
 const windowOptions = computed(() => {
@@ -114,10 +119,23 @@ const drawerMeta = computed(() => {
   if (drawerKind.value === 'theme') return `${drawerDate.value} · 仅包含当日涨停记录`
   if (drawerKind.value === 'day') return '当日涨停、未知板数与断板分组'
   if (drawerKind.value === 'stock') {
-    return `${drawerStock.value?.symbol ?? ''} · ${drawerStock.value?.sector ?? ''}`
+    return `${drawerStock.value?.symbol ?? ''} · ${drawerStock.value?.sector ?? ''} · ${drawerStock.value?.date ?? drawerDate.value}`
   }
   return ''
 })
+const drawerVariant = computed(() =>
+  ['index', 'theme', 'day', 'stock'].includes(drawerKind.value ?? '') ? 'modal' : 'drawer',
+)
+const drawerModalSize = computed(() => {
+  if (drawerKind.value === 'index') return 'chart'
+  if (drawerKind.value === 'stock') return 'detail'
+  return 'default'
+})
+const stockNoteKey = computed(() =>
+  drawerStock.value
+    ? `${drawerStock.value.date}|${drawerStock.value.symbol}|${drawerStock.value.status}`
+    : '',
+)
 
 const drawerRows = computed(() => {
   if (!drawerOverview.value) return []
@@ -171,13 +189,19 @@ function resetToLatest() {
 }
 
 function closeDrawer() {
+  stockRowsController?.abort()
   detail.clear()
   drawerKind.value = null
   drawerOverview.value = null
   drawerStock.value = null
+  stockSource.value = null
+  stockPeerRows.value = []
   returnTo.value = null
   drawerFailure.value = null
   drawerLoading.value = false
+  stockRowsLoading.value = false
+  stockRowsFailure.value = null
+  stockRowsMessage.value = ''
 }
 
 function openIndex(symbol: string) {
@@ -206,16 +230,56 @@ async function openDay(date: string) {
   await detail.load(date, overview.value)
 }
 
-function openStock(row: LadderRow, date: string, back: 'theme' | 'day' | null = null) {
+async function openStock(row: LadderRow, date: string, back: 'theme' | 'day' | null = null) {
+  stockRowsController?.abort()
+  const current = new AbortController()
+  stockRowsController = current
+  const sequence = ++stockRowsSequence
   returnTo.value = back
     ? { kind: back, date, theme: back === 'theme' ? drawerTheme.value : undefined }
     : null
-  drawerStock.value = row
   drawerKind.value = 'stock'
   drawerDate.value = date
+  drawerStock.value = null
+  stockSource.value = row
+  stockPeerRows.value = []
+  stockRowsLoading.value = true
+  stockRowsFailure.value = null
+  stockRowsMessage.value = ''
+  await nextTick()
+  drawer.value?.focusPanel()
+
+  const result = await callApi(
+    (signal) =>
+      api.GET('/api/v1/market/review/limit-up', {
+        params: { query: { date, window: 1 } },
+        signal,
+      }),
+    { access: 'read', signal: current.signal },
+  )
+  if (stockRowsController !== current || sequence !== stockRowsSequence) return
+  stockRowsLoading.value = false
+  if (!result.ok) {
+    if (result.failure.kind !== 'aborted') stockRowsFailure.value = result.failure
+    return
+  }
+
+  const payload: ReviewLimitUp = result.data
+  stockPeerRows.value = payload.rows
+  const expectedStatus = row.broken_kind ? 'broken' : 'limit_up'
+  drawerStock.value =
+    payload.rows.find(
+      (item) => item.date === date && item.symbol === row.symbol && item.status === expectedStatus,
+    ) ??
+    payload.rows.find((item) => item.date === date && item.symbol === row.symbol) ??
+    null
+  if (!drawerStock.value) {
+    stockRowsMessage.value = `${date} 的涨停明细中没有找到 ${row.symbol} ${row.name}。`
+  }
 }
 
 function backFromStock() {
+  stockRowsController?.abort()
   const target = returnTo.value
   if (!target) {
     closeDrawer()
@@ -225,6 +289,29 @@ function backFromStock() {
   drawerDate.value = target.date
   drawerTheme.value = target.theme ?? ''
   drawerStock.value = null
+  stockSource.value = null
+  stockPeerRows.value = []
+  stockRowsLoading.value = false
+  stockRowsFailure.value = null
+  stockRowsMessage.value = ''
+  void nextTick(() => drawer.value?.focusPanel())
+}
+
+async function selectStockFromDetail(row: LimitUpReviewRow) {
+  drawerDate.value = row.date
+  drawerStock.value = row
+  await nextTick()
+  drawer.value?.focusPanel()
+}
+
+function retryStockLookup() {
+  const source = stockSource.value
+  if (!source) return
+  void openStock(source, drawerDate.value, returnTo.value?.kind ?? null)
+}
+
+function saveStockNote(value: string) {
+  if (stockNoteKey.value) notes[stockNoteKey.value] = value
 }
 
 async function loadRouteState() {
@@ -357,6 +444,8 @@ watch(() => [route.query.date, route.query.window, reloadKey.value] as const, lo
 
 onBeforeUnmount(() => {
   requestController?.abort()
+  stockRowsController?.abort()
+  stockRowsSequence += 1
   detail.clear()
 })
 </script>
@@ -416,6 +505,16 @@ onBeforeUnmount(() => {
       <button type="button" class="small-button" @click="reloadKey += 1">重新读取总览</button>
     </section>
 
+    <MarketIndexPanel
+      v-if="(overview || overviewFailure) && (indexCards.length || indicesFailure)"
+      :date="overview?.date ?? indices?.date ?? ''"
+      :items="indexCards"
+      :series="indices"
+      :loading="loadingIndices"
+      :failure="indicesFailure ? failureText(indicesFailure) : null"
+      :request-id="indicesFailure?.requestId"
+      @select="openIndex"
+    />
     <MarketSummaryPanel v-if="overview" :overview="overview" :previous="previous">
       <template #controls>
         <MarketReviewControls
@@ -433,16 +532,6 @@ onBeforeUnmount(() => {
         />
       </template>
     </MarketSummaryPanel>
-    <MarketIndexPanel
-      v-if="indexCards.length || indicesFailure"
-      :date="overview?.date ?? indices?.date ?? ''"
-      :items="indexCards"
-      :series="indices"
-      :loading="loadingIndices"
-      :failure="indicesFailure ? failureText(indicesFailure) : null"
-      :request-id="indicesFailure?.requestId"
-      @select="openIndex"
-    />
     <section v-if="chartHistoryFailure && overview" class="banner banner--warn" role="status">
       <strong>更长周期图表暂按 {{ chartHistory.length }} 个交易日展示。</strong>
       <span>
@@ -470,15 +559,12 @@ onBeforeUnmount(() => {
     </template>
 
     <ReviewDrawer
+      ref="drawer"
       :open="drawerKind !== null"
       :title="drawerTitle"
       :meta="drawerMeta"
-      :variant="
-        drawerKind === 'index' || drawerKind === 'theme' || drawerKind === 'day'
-          ? 'modal'
-          : 'drawer'
-      "
-      :modal-size="drawerKind === 'index' ? 'chart' : 'default'"
+      :variant="drawerVariant"
+      :modal-size="drawerModalSize"
       @close="closeDrawer"
     >
       <template v-if="drawerKind === 'index'">
@@ -557,53 +643,30 @@ onBeforeUnmount(() => {
         </template>
       </template>
 
-      <template v-else-if="drawerKind === 'stock' && drawerStock">
+      <template v-else-if="drawerKind === 'stock'">
         <button v-if="returnTo" type="button" class="back" @click="backFromStock">
           <AppIcon name="chevron-left" :size="14" />返回列表
         </button>
-        <dl class="stock-kv">
-          <div>
-            <dt>题材</dt>
-            <dd>{{ drawerStock.sector }}</dd>
-          </div>
-          <div>
-            <dt>板数</dt>
-            <dd>{{ drawerStock.boards ?? '未知' }}</dd>
-          </div>
-          <div>
-            <dt>板数日期</dt>
-            <dd>{{ drawerStock.boards_as_of_date }}</dd>
-          </div>
-          <div>
-            <dt>封板时间</dt>
-            <dd>{{ drawerStock.limit_up_time || '—' }}</dd>
-          </div>
-          <div>
-            <dt>观察日涨跌</dt>
-            <dd :class="compareClass(drawerStock.change_pct)">
-              {{ formatSignedPercent(drawerStock.change_pct) }}
-            </dd>
-          </div>
-          <div>
-            <dt>一字板</dt>
-            <dd>
-              {{
-                drawerStock.one_word_board === null
-                  ? '未知'
-                  : drawerStock.one_word_board
-                    ? '是'
-                    : '否'
-              }}
-            </dd>
-          </div>
-        </dl>
-        <div v-if="drawerStock.boards === null" class="banner banner--warn">
-          连板历史不足或前一日记录缺失，不能把该股当作首板。
+        <div v-if="stockRowsLoading" class="drawer-state">
+          正在读取 {{ drawerDate }} 的股票明细…
         </div>
-        <div v-if="drawerStock.broken_kind" class="banner banner--warn">
-          {{ drawerStock.broken_kind === 'connection' ? '该股为连板中断。' : '该股为首板未续。' }}
-          板数属于 {{ drawerStock.boards_as_of_date }}，不是观察日的在榜板数。
+        <div v-else-if="stockRowsFailure" class="drawer-state drawer-state--error" role="alert">
+          <span>{{ failureText(stockRowsFailure) }}</span>
+          <span v-if="stockRowsFailure.requestId" class="request-id">
+            请求编号 {{ stockRowsFailure.requestId }}
+          </span>
+          <button type="button" class="small-button" @click="retryStockLookup">重试股票明细</button>
         </div>
+        <div v-else-if="stockRowsMessage" class="drawer-state">{{ stockRowsMessage }}</div>
+        <StockDetailContent
+          v-else-if="drawerStock"
+          :row="drawerStock"
+          :peer-rows="stockPeerRows"
+          :window-max="maximumWindow"
+          :note="notes[stockNoteKey] ?? ''"
+          @select="selectStockFromDetail"
+          @save-note="saveStockNote"
+        />
       </template>
     </ReviewDrawer>
   </div>
@@ -875,31 +938,6 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.stock-kv {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin: 0 0 12px;
-}
-
-.stock-kv div {
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface2);
-}
-
-.stock-kv dt {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.stock-kv dd {
-  margin: 3px 0 0;
-  color: var(--fg);
-  font-size: 13px;
-}
-
 @media (max-width: 620px) {
   .fallback-controls {
     justify-content: flex-start;
@@ -916,10 +954,6 @@ onBeforeUnmount(() => {
   .stock-row > :nth-child(2),
   .stock-row > :nth-child(4) {
     display: none;
-  }
-
-  .stock-kv {
-    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

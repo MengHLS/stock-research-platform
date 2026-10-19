@@ -8,7 +8,7 @@ const props = defineProps<{
   title: string
   meta?: string
   variant?: 'drawer' | 'modal'
-  modalSize?: 'default' | 'chart'
+  modalSize?: 'default' | 'chart' | 'detail'
 }>()
 const emit = defineEmits<{ close: [] }>()
 const panel = ref<HTMLElement | null>(null)
@@ -99,6 +99,10 @@ watch(
   },
 )
 
+defineExpose({
+  focusPanel: () => panel.value?.focus({ preventScroll: true }),
+})
+
 document.addEventListener('keydown', onKeydown)
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)
@@ -117,6 +121,7 @@ onBeforeUnmount(() => {
           :class="[
             `drawer-panel--${variant ?? 'drawer'}`,
             { 'drawer-panel--chart': modalSize === 'chart' },
+            { 'drawer-panel--detail': modalSize === 'detail' },
           ]"
           role="dialog"
           aria-modal="true"
@@ -191,6 +196,12 @@ onBeforeUnmount(() => {
   max-height: min(720px, 90dvh);
 }
 
+.drawer-panel--modal.drawer-panel--detail {
+  width: min(1120px, 95vw);
+  height: min(820px, 92vh);
+  height: min(820px, 92dvh);
+}
+
 .drawer-panel--chart .drawer-body {
   flex: 0 1 auto;
 }
@@ -201,13 +212,13 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px;
+  padding: 17px 18px;
   border-bottom: 1px solid var(--border);
 }
 
 .drawer-head h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 19px;
   letter-spacing: -0.01em;
 }
 
@@ -215,7 +226,7 @@ onBeforeUnmount(() => {
   margin: 3px 0 0;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .close {
@@ -236,7 +247,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  padding: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -274,6 +285,11 @@ onBeforeUnmount(() => {
 
   .drawer-layer--modal {
     padding-inline: 10px;
+  }
+
+  .close {
+    width: 44px;
+    height: 44px;
   }
 }
 </style>

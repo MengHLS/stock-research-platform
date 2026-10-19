@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
 
+import AppIcon from '../AppIcon'
 import type { LadderRead, LadderRow } from '../../market/review'
 import { buildLadderGroups, compareClass, formatSignedPercent } from '../../market/review'
 
@@ -36,6 +37,10 @@ function timeLabel(row: LadderRow): string {
       <span class="summary num">
         涨停 {{ totalLimitUp ?? '—' }} · 断板 {{ brokenCount ?? '—' }}
       </span>
+      <RouterLink class="detail-link" :to="{ path: '/market/limit-up', query: { date } }">
+        复盘明细
+        <AppIcon name="arrow-right" :size="13" />
+      </RouterLink>
     </header>
 
     <div class="panel-body">
@@ -133,6 +138,25 @@ function timeLabel(row: LadderRow): string {
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
+}
+
+.detail-link {
+  min-height: 28px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  color: var(--fg2);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.detail-link:hover {
+  border-color: var(--border2);
+  color: var(--accent);
 }
 
 .ladder {

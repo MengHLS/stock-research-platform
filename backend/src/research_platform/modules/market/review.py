@@ -11,8 +11,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
-from typing import Protocol
+from decimal import ROUND_HALF_UP, Decimal, DecimalException
+from typing import Literal, Protocol
 
 from research_platform.core.cache import TTLCache
 from research_platform.core.config import ReviewConfig
@@ -24,6 +24,8 @@ from .review_schemas import (
     IndexCoverageRead,
     LadderRead,
     LadderRowRead,
+    LimitUpReviewDayRead,
+    LimitUpReviewRowRead,
     MarketHistoryRowRead,
     MaxBoardStockRead,
     OverviewIndexRead,
@@ -34,8 +36,11 @@ from .review_schemas import (
     ReviewIndexSeriesRead,
     ReviewIndicesRead,
     ReviewIssueRead,
+    ReviewLimitUpRead,
     ReviewMethodologyRead,
     ReviewOverviewRead,
+    ReviewStockBarRead,
+    ReviewStockSeriesRead,
     ReviewSummaryRead,
     ThemeCountRead,
 )
@@ -79,6 +84,17 @@ class StockQuote:
     symbol: str
     change_pct: Decimal | None
     one_word_board: bool | None
+
+
+@dataclass(frozen=True)
+class StockBar:
+    trading_day: date
+    symbol: str
+    open: Decimal | None
+    high: Decimal | None
+    low: Decimal | None
+    close: Decimal | None
+    previous_close: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -132,6 +148,20 @@ class ReviewSource(Protocol):
 
     def stock_quotes(self, trading_day: date, symbols: list[str]) -> list[StockQuote]: ...
 
+    def stock_quotes_range(
+        self,
+        start: date,
+        end: date,
+        symbols: list[str],
+    ) -> list[StockQuote]: ...
+
+    def stock_bars_range(
+        self,
+        start: date,
+        end: date,
+        symbol: str,
+    ) -> list[StockBar]: ...
+
     def market_wide_rows(self, start: date, end: date) -> list[MarketWideRow]: ...
 
     def index_rows(self, start: date, end: date, symbols: list[str]) -> list[IndexBar]: ...
@@ -145,6 +175,18 @@ class ReviewSourceDataError(ValueError):
 class _BoardResult:
     boards: int | None
     exhausted: bool
+
+
+@dataclass(frozen=True)
+class _LimitUpDayResult:
+    day: date
+    previous_day: date | None
+    current: dict[str, LimitUpRecord]
+    previous: dict[str, LimitUpRecord]
+    assessments: dict[str, _BoardResult]
+    broken_records: list[tuple[LimitUpRecord, _BoardResult]]
+    summary: ReviewSummaryRead
+    quote_symbols: list[str]
 
 
 class MarketReviewService:
@@ -203,6 +245,28 @@ class MarketReviewService:
             self._config.cache_seconds,
             lambda: self._indices(trading_day, window),
         )
+
+    def limit_up(self, trading_day: date, window: int) -> ReviewLimitUpRead:
+        self._validate_window(window)
+        key = ("market-review-limit-up", REVIEW_VERSION, trading_day, window)
+        return self._cache.get_or_create(
+            key,
+            self._config.cache_seconds,
+            lambda: self._limit_up(trading_day, window),
+        )
+
+    def stock_series(self, symbol: str, trading_day: date, window: int) -> ReviewStockSeriesRead:
+        self._validate_window(window)
+        canonical = parse_symbol(symbol).display
+        key = ("market-review-stock-series", REVIEW_VERSION, canonical, trading_day, window)
+        try:
+            return self._cache.get_or_create(
+                key,
+                self._config.cache_seconds,
+                lambda: self._stock_series(canonical, trading_day, window),
+            )
+        except DecimalException:
+            raise DomainError("MARKET_REVIEW_SOURCE_BAD_DATA") from None
 
     def _source_or_fail(self) -> ReviewSource:
         if self._source is None:
@@ -539,6 +603,235 @@ class MarketReviewService:
             methodology=ReviewMethodologyRead(),
         )
 
+    def _stock_series(
+        self,
+        symbol: str,
+        requested_day: date,
+        window: int,
+    ) -> ReviewStockSeriesRead:
+        source = self._source_or_fail()
+        lookback_start = requested_day - timedelta(days=self._config.lookback_days)
+        calendar_days = self._calendar(source.trading_days(lookback_start, requested_day))
+        if requested_day not in calendar_days:
+            raise DomainError("MARKET_REVIEW_DATE_UNAVAILABLE")
+
+        target_index = calendar_days.index(requested_day)
+        history_dates = calendar_days[max(0, target_index - window + 1) : target_index + 1]
+        first_history_index = calendar_days.index(history_dates[0])
+        query_start = calendar_days[max(0, first_history_index - 19)]
+        by_day = self._stock_bars(
+            source.stock_bars_range(query_start, requested_day, symbol),
+            symbol,
+        )
+        bars: list[ReviewStockBarRead] = []
+        for day in history_dates:
+            bar = by_day.get(day)
+            bars.append(
+                ReviewStockBarRead(
+                    date=day,
+                    open=bar.open if bar else None,
+                    high=bar.high if bar else None,
+                    low=bar.low if bar else None,
+                    close=bar.close if bar else None,
+                    change_pct=(_change_pct(bar.close, bar.previous_close) if bar else None),
+                    ma5=_stock_moving_average(calendar_days, by_day, day, 5),
+                    ma20=_stock_moving_average(calendar_days, by_day, day, 20),
+                )
+            )
+        missing_days = sum(
+            any(value is None for value in (bar.open, bar.high, bar.low, bar.close)) for bar in bars
+        )
+        issues = list(SOURCE_ISSUES)
+        if missing_days:
+            issues.append(_issue("stock_history_missing", requested_day))
+        return ReviewStockSeriesRead(
+            symbol=symbol,
+            window_requested=window,
+            window_actual=len(history_dates),
+            coverage=_coverage(sum(day in by_day for day in history_dates)),
+            missing_days=missing_days,
+            bars=bars,
+            issues=issues,
+            methodology=ReviewMethodologyRead(),
+        )
+
+    def _limit_up(self, requested_day: date, window: int) -> ReviewLimitUpRead:
+        source = self._source_or_fail()
+        lookback_start = requested_day - timedelta(days=self._config.lookback_days)
+        calendar_days = self._calendar(source.trading_days(lookback_start, requested_day))
+        if requested_day not in calendar_days:
+            raise DomainError("MARKET_REVIEW_DATE_UNAVAILABLE")
+
+        target_index = calendar_days.index(requested_day)
+        history_dates = calendar_days[max(0, target_index - window + 1) : target_index + 1]
+        records_all = self._normalize_records(
+            source.limit_up_records(calendar_days[0], requested_day)
+        )
+        records_by_day: dict[date, dict[str, LimitUpRecord]] = defaultdict(dict)
+        for record in records_all:
+            records_by_day[record.trading_day][record.symbol] = record
+
+        day_results: list[_LimitUpDayResult] = []
+        expected_quotes: dict[date, set[str]] = {}
+        all_quote_symbols: set[str] = set()
+        issues = list(SOURCE_ISSUES)
+        for day in history_dates:
+            current = records_by_day.get(day, {})
+            day_index = calendar_days.index(day)
+            previous_day = calendar_days[day_index - 1] if day_index > 0 else None
+            previous = records_by_day.get(previous_day, {}) if previous_day else {}
+            if not current:
+                day_results.append(
+                    _LimitUpDayResult(
+                        day=day,
+                        previous_day=previous_day,
+                        current={},
+                        previous=previous,
+                        assessments={},
+                        broken_records=[],
+                        summary=ReviewSummaryRead(assessment="missing"),
+                        quote_symbols=[],
+                    )
+                )
+                if day == requested_day:
+                    issues.append(_issue("target_limit_up_missing", day))
+                continue
+
+            if previous_day is None or not previous:
+                issues.append(_issue("previous_limit_up_missing", previous_day or day))
+            assessments = {
+                symbol: self._boards_at(symbol, day, calendar_days, records_by_day)
+                for symbol in current
+            }
+            if any(result.exhausted for result in assessments.values()):
+                issues.append(_issue("board_history_exhausted", day))
+                issues.append(_issue("history_window_truncated", day))
+
+            broken_records: list[tuple[LimitUpRecord, _BoardResult]] = []
+            for symbol, record in previous.items():
+                if symbol in current:
+                    continue
+                result = self._boards_at(symbol, previous_day, calendar_days, records_by_day)
+                if result.exhausted:
+                    issues.append(_issue("board_history_exhausted", previous_day))
+                    issues.append(_issue("history_window_truncated", previous_day))
+                broken_records.append((record, result))
+
+            quote_symbols = sorted({*current, *(record.symbol for record, _ in broken_records)})
+            broken_ladder_rows = [
+                self._ladder_row(
+                    record,
+                    result.boards,
+                    previous_day,
+                    {},
+                    broken_kind=(
+                        None
+                        if result.boards is None
+                        else "connection"
+                        if result.boards >= 2
+                        else "first"
+                    ),
+                )
+                for record, result in broken_records
+            ]
+            summary = _summary(
+                current,
+                assessments,
+                broken_ladder_rows,
+                previous_known=bool(previous),
+            )
+            expected_quotes[day] = set(quote_symbols)
+            all_quote_symbols.update(quote_symbols)
+            day_results.append(
+                _LimitUpDayResult(
+                    day=day,
+                    previous_day=previous_day,
+                    current=current,
+                    previous=previous,
+                    assessments=assessments,
+                    broken_records=broken_records,
+                    summary=summary,
+                    quote_symbols=quote_symbols,
+                )
+            )
+
+        quotes_by_day = (
+            self._quotes_by_day(
+                source.stock_quotes_range(
+                    history_dates[0],
+                    requested_day,
+                    sorted(all_quote_symbols),
+                ),
+                expected_quotes,
+            )
+            if all_quote_symbols
+            else {}
+        )
+        rows: list[LimitUpReviewRowRead] = []
+        days: list[LimitUpReviewDayRead] = []
+        for result in day_results:
+            quotes = quotes_by_day.get(result.day, {})
+            if len(quotes) < len(result.quote_symbols):
+                issues.append(_issue("stock_quote_missing", result.day))
+            if result.current:
+                rows.extend(
+                    self._limit_up_row(
+                        result.day,
+                        record,
+                        result.assessments[record.symbol].boards,
+                        result.day,
+                        quotes,
+                        status="limit_up",
+                    )
+                    for record in result.current.values()
+                )
+                rows.extend(
+                    self._limit_up_row(
+                        result.day,
+                        record,
+                        board_result.boards,
+                        result.previous_day,
+                        quotes,
+                        status="broken",
+                        broken_kind=(
+                            None
+                            if board_result.boards is None
+                            else "connection"
+                            if board_result.boards >= 2
+                            else "first"
+                        ),
+                    )
+                    for record, board_result in result.broken_records
+                )
+            days.append(
+                LimitUpReviewDayRead(
+                    date=result.day,
+                    assessment=result.summary.assessment,
+                    total_limit_up=result.summary.total_limit_up,
+                    broken_count=result.summary.broken_count,
+                    limit_up=_coverage(len(result.current)),
+                )
+            )
+
+        rows.sort(
+            key=lambda row: (
+                row.date,
+                row.boards if row.boards is not None else -1,
+                row.limit_up_time or "",
+                row.symbol,
+            ),
+            reverse=True,
+        )
+        return ReviewLimitUpRead(
+            date=requested_day,
+            window_requested=window,
+            window_actual=len(history_dates),
+            rows=rows,
+            days=days,
+            issues=_dedupe_issues(issues),
+            methodology=ReviewMethodologyRead(),
+        )
+
     def _calendar(self, rows: list[date]) -> list[date]:
         try:
             return sorted({_as_date(row) for row in rows})
@@ -605,6 +898,28 @@ class MarketReviewService:
             for symbol in INDEX_SYMBOLS
         }
 
+    def _stock_bars(self, rows: list[StockBar], expected_symbol: str) -> dict[date, StockBar]:
+        result: dict[date, StockBar] = {}
+        try:
+            for row in rows:
+                day = _as_date(row.trading_day)
+                symbol = _canonical_source_symbol(row.symbol)
+                if symbol != expected_symbol:
+                    raise ReviewSourceDataError("unexpected stock symbol")
+                for value in (row.open, row.high, row.low, row.close, row.previous_close):
+                    _finite_optional(value)
+                    if value is not None and value <= 0:
+                        raise ReviewSourceDataError("non-positive stock price")
+                if all(value is not None for value in (row.open, row.high, row.low, row.close)):
+                    if not (row.low <= row.open <= row.high and row.low <= row.close <= row.high):
+                        raise ReviewSourceDataError("inconsistent stock OHLC")
+                if day in result:
+                    raise ReviewSourceDataError("duplicate stock bar")
+                result[day] = row
+        except (DomainError, ReviewSourceDataError):
+            raise DomainError("MARKET_REVIEW_SOURCE_BAD_DATA") from None
+        return result
+
     def _quotes(self, rows: list[StockQuote], expected_day: date) -> dict[str, StockQuote]:
         result: dict[str, StockQuote] = {}
         try:
@@ -617,6 +932,35 @@ class MarketReviewService:
                 _finite_optional(row.change_pct)
                 result[symbol] = StockQuote(
                     trading_day=row.trading_day,
+                    symbol=symbol,
+                    change_pct=(
+                        row.change_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        if row.change_pct is not None
+                        else None
+                    ),
+                    one_word_board=row.one_word_board,
+                )
+        except (DomainError, ReviewSourceDataError):
+            raise DomainError("MARKET_REVIEW_SOURCE_BAD_DATA") from None
+        return result
+
+    def _quotes_by_day(
+        self,
+        rows: list[StockQuote],
+        expected: dict[date, set[str]],
+    ) -> dict[date, dict[str, StockQuote]]:
+        result: dict[date, dict[str, StockQuote]] = defaultdict(dict)
+        try:
+            for row in rows:
+                day = _as_date(row.trading_day)
+                symbol = _canonical_source_symbol(row.symbol)
+                if symbol not in expected.get(day, set()):
+                    continue
+                if symbol in result[day]:
+                    raise ReviewSourceDataError("duplicate quote")
+                _finite_optional(row.change_pct)
+                result[day][symbol] = StockQuote(
+                    trading_day=day,
                     symbol=symbol,
                     change_pct=(
                         row.change_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -669,6 +1013,33 @@ class MarketReviewService:
             broken_kind=broken_kind,
             change_pct=quote.change_pct if quote else None,
             one_word_board=quote.one_word_board if quote else None,
+        )
+
+    def _limit_up_row(
+        self,
+        observation_day: date,
+        record: LimitUpRecord,
+        boards: int | None,
+        boards_as_of_date: date,
+        quotes: dict[str, StockQuote],
+        *,
+        status: Literal["limit_up", "broken"],
+        broken_kind: str | None = None,
+    ) -> LimitUpReviewRowRead:
+        quote = quotes.get(record.symbol)
+        return LimitUpReviewRowRead(
+            date=observation_day,
+            symbol=record.symbol,
+            name=record.name or record.symbol,
+            sector=record.sector or "未知",
+            status=status,
+            boards=boards,
+            boards_as_of_date=boards_as_of_date,
+            limit_up_time=record.limit_up_time or "",
+            limit_up_time_as_of_date=boards_as_of_date,
+            broken_kind=broken_kind,
+            change_pct=quote.change_pct if quote else None,
+            one_word_board=quote.one_word_board if quote and status == "limit_up" else None,
         )
 
     def _history_row(
@@ -785,6 +1156,7 @@ def _issue(code: str, scope: date) -> ReviewIssueRead:
         "stock_quote_missing": "部分梯队股票缺少目标日行情，涨跌幅或一字板保持未知。",
         "history_window_truncated": "历史查询窗口不足以确认部分连板高度。",
         "index_history_missing": "目标历史窗口内存在缺失的指数日线。",
+        "stock_history_missing": "目标历史窗口内存在缺失的个股日线。",
     }
     return ReviewIssueRead(code=code, scope=scope.isoformat(), message=messages[code])
 
@@ -927,6 +1299,26 @@ def _change_pct(current: Decimal | None, previous: Decimal | None) -> Decimal | 
 def _moving_average(
     calendar_days: list[date],
     by_day: dict[date, IndexBar],
+    day: date,
+    periods: int,
+) -> Decimal | None:
+    position = calendar_days.index(day)
+    if position + 1 < periods:
+        return None
+    values: list[Decimal] = []
+    for current_day in calendar_days[position - periods + 1 : position + 1]:
+        bar = by_day.get(current_day)
+        if bar is None or bar.close is None:
+            return None
+        values.append(bar.close)
+    return (sum(values, Decimal(0)) / Decimal(periods)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+
+def _stock_moving_average(
+    calendar_days: list[date],
+    by_day: dict[date, StockBar],
     day: date,
     periods: int,
 ) -> Decimal | None:

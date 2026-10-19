@@ -18,6 +18,7 @@ IssueCode = Literal[
     "stock_quote_missing",
     "history_window_truncated",
     "index_history_missing",
+    "stock_history_missing",
 ]
 
 
@@ -234,5 +235,70 @@ class ReviewIndicesRead(BaseModel):
     window_actual: int
     history_dates: list[date]
     indices: list[ReviewIndexSeriesRead]
+    issues: list[ReviewIssueRead]
+    methodology: ReviewMethodologyRead
+
+
+class ReviewStockBarRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    open: Decimal | None = None
+    high: Decimal | None = None
+    low: Decimal | None = None
+    close: Decimal | None = None
+    change_pct: Decimal | None = None
+    ma5: Decimal | None = None
+    ma20: Decimal | None = None
+
+
+class ReviewStockSeriesRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str
+    window_requested: int
+    window_actual: int
+    coverage: CoverageRead
+    missing_days: int = Field(ge=0)
+    bars: list[ReviewStockBarRead]
+    issues: list[ReviewIssueRead]
+    methodology: ReviewMethodologyRead
+
+
+class LimitUpReviewDayRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    assessment: Literal["available", "partial", "missing"]
+    total_limit_up: int | None = None
+    broken_count: int | None = None
+    limit_up: CoverageRead
+
+
+class LimitUpReviewRowRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    symbol: str
+    name: str
+    sector: str
+    status: Literal["limit_up", "broken"]
+    boards: int | None
+    boards_as_of_date: date
+    limit_up_time: str
+    limit_up_time_as_of_date: date
+    broken_kind: Literal["connection", "first"] | None = None
+    change_pct: Decimal | None = None
+    one_word_board: bool | None = None
+
+
+class ReviewLimitUpRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    window_requested: int
+    window_actual: int
+    rows: list[LimitUpReviewRowRead]
+    days: list[LimitUpReviewDayRead]
     issues: list[ReviewIssueRead]
     methodology: ReviewMethodologyRead

@@ -200,4 +200,13 @@ describe('review presentation model', () => {
     ] as const
     expect(buildCandleData([...bars])).toEqual([[1, 2, 1, 3], null, [2.2, 2.4, 2.1, 2.6]])
   })
+
+  it('does not draw omitted or non-finite OHLC from optional API fields', () => {
+    expect(
+      buildCandleData([
+        { date: '2026-09-17', high: '3', low: '1', close: '2' },
+        { date: '2026-09-18', open: 'NaN', high: '3', low: '1', close: '2' },
+      ]),
+    ).toEqual([null, null])
+  })
 })

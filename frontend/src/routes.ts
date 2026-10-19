@@ -51,7 +51,18 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('./pages/MarketOverviewPage.vue'),
     meta: { title: '行情复盘总览', subtitle: '日期、情绪、指数与连板结构' },
   },
-  planned('/market/limit-up', '涨停复盘明细', '等待涨停复盘数据接入。'),
+  {
+    path: '/market/limit-up',
+    name: 'market-limit-up',
+    component: () => import('./pages/MarketLimitUpPage.vue'),
+    meta: { title: '涨停复盘明细', subtitle: '观察日、涨停日历、筛选与跨日记录' },
+  },
+  {
+    path: '/market/global',
+    name: 'market-global',
+    component: () => import('./pages/GlobalMarketsPage.vue'),
+    meta: { title: '全球市场', subtitle: '跨市场指数、半导体与商品' },
+  },
   planned('/market/sentiment', '情绪周期', '等待情绪指标计算模块。'),
   {
     path: '/market/intraday',
