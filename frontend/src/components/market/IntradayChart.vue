@@ -21,7 +21,7 @@ const props = defineProps<{
   previousClose?: string | null
 }>()
 
-const { chartHost, width, revealX, tooltipPosition } = useChartViewport(620, 940)
+const { chartHost, width, revealX, tooltipPosition } = useChartViewport(430, 940)
 const height = 360
 const plotLeft = 12
 const plotRight = 64
@@ -341,7 +341,7 @@ function moveCursor(step: number) {
 <style scoped>
 .chart-wrap {
   position: relative;
-  min-width: 620px;
+  min-width: 430px;
 }
 
 .legend {

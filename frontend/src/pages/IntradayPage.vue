@@ -777,33 +777,45 @@ onBeforeUnmount(() => {
                   同日 {{ bars.length }} / 返回 {{ intradayTotal || bars.length }} 根
                 </span>
               </header>
-              <div v-if="readings.length" class="chart-readings" role="group" aria-label="盘中读数">
-                <div v-for="reading in readings" :key="reading.key" class="reading">
-                  <span>{{ reading.label }}</span>
-                  <b class="num" :class="reading.tone">{{ reading.value }}</b>
-                  <small>{{ reading.note }}</small>
-                </div>
-              </div>
               <div class="panel-body">
-                <div v-if="intradayLoading" class="panel-state">正在读取一分钟行情…</div>
                 <div
-                  v-else-if="intradayFailure"
-                  class="panel-state panel-state--error"
-                  role="alert"
+                  class="chart-layout"
+                  :class="{ 'chart-layout--with-readings': readings.length }"
                 >
-                  <b>{{ failureText(intradayFailure) }}</b>
-                  <span v-if="intradayFailure.requestId">
-                    请求编号 {{ intradayFailure.requestId }}
-                  </span>
-                  <button type="button" @click="retrySelected">重试分钟线</button>
+                  <div class="chart-main">
+                    <div v-if="intradayLoading" class="panel-state">正在读取一分钟行情…</div>
+                    <div
+                      v-else-if="intradayFailure"
+                      class="panel-state panel-state--error"
+                      role="alert"
+                    >
+                      <b>{{ failureText(intradayFailure) }}</b>
+                      <span v-if="intradayFailure.requestId">
+                        请求编号 {{ intradayFailure.requestId }}
+                      </span>
+                      <button type="button" @click="retrySelected">重试分钟线</button>
+                    </div>
+                    <div v-else-if="!bars.length" class="panel-state">暂无分钟线数据。</div>
+                    <div v-else class="chart-scroll">
+                      <IntradayChart :bars="bars" :previous-close="quote?.previous_close" />
+                    </div>
+                    <ul v-if="intradayLimits.length" class="limit-list">
+                      <li v-for="limit in intradayLimits" :key="limit">{{ limit }}</li>
+                    </ul>
+                  </div>
+                  <aside
+                    v-if="readings.length"
+                    class="chart-readings"
+                    role="group"
+                    aria-label="盘中读数"
+                  >
+                    <div v-for="reading in readings" :key="reading.key" class="reading">
+                      <span>{{ reading.label }}</span>
+                      <b class="num" :class="reading.tone">{{ reading.value }}</b>
+                      <small>{{ reading.note }}</small>
+                    </div>
+                  </aside>
                 </div>
-                <div v-else-if="!bars.length" class="panel-state">暂无分钟线数据。</div>
-                <div v-else class="chart-scroll">
-                  <IntradayChart :bars="bars" :previous-close="quote?.previous_close" />
-                </div>
-                <ul v-if="intradayLimits.length" class="limit-list">
-                  <li v-for="limit in intradayLimits" :key="limit">{{ limit }}</li>
-                </ul>
               </div>
             </section>
 
@@ -1607,6 +1619,26 @@ onBeforeUnmount(() => {
   padding-bottom: 10px;
 }
 
+.chart-panel {
+  container-type: inline-size;
+}
+
+.chart-layout {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 13px;
+  align-items: start;
+}
+
+.chart-layout--with-readings {
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 238px);
+}
+
+.chart-main {
+  min-width: 0;
+}
+
 .chart-scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -1645,10 +1677,13 @@ onBeforeUnmount(() => {
 }
 
 .chart-readings {
-  padding: 10px 13px 0;
+  min-width: 0;
+  padding-left: 13px;
+  border-left: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
+  align-content: start;
 }
 
 .reading {
@@ -1777,7 +1812,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 1450px) {
+@media (max-width: 1720px) {
   .main-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1850,9 +1885,18 @@ onBeforeUnmount(() => {
   .side-stack {
     grid-template-columns: 1fr;
   }
+}
 
-  .chart-readings {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@container (max-width: 760px) {
+  .chart-layout--with-readings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chart-layout--with-readings > .chart-readings {
+    padding-top: 12px;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 }
 
