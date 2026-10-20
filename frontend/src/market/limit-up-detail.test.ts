@@ -33,6 +33,7 @@ function props(overrides: Record<string, unknown> = {}) {
     industryProvider: 'eastmoney',
     industryLoading: false,
     industryFailure: null,
+    industryRequestId: null,
     ...overrides,
   }
 }
@@ -54,11 +55,14 @@ describe('limit-up stock detail industry', () => {
           industry: null,
           industryProvider: null,
           industryFailure: '行业来源暂不可用',
+          industryRequestId: 'req-industry',
         }),
       ),
     )
 
     expect(html).toContain('未获取')
-    expect(html).toContain('获取失败')
+    expect(html).toContain('行业来源暂不可用')
+    expect(html).toContain('请求编号 req-industry')
+    expect(html).toContain('重试行业')
   })
 })

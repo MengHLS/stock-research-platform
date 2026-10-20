@@ -19,11 +19,13 @@ const props = defineProps<{
   industryProvider: string | null
   industryLoading: boolean
   industryFailure: string | null
+  industryRequestId?: string | null
 }>()
 const emit = defineEmits<{
   'save-note': [note: string]
   select: [row: LimitUpReviewRow]
   'retry-stock': []
+  'retry-industry': []
 }>()
 
 const draft = ref(props.note)
@@ -84,8 +86,12 @@ function saveNote() {
         <dd :title="industryFailure ?? undefined">
           {{ industryLoading ? '读取中…' : (industry ?? '未获取') }}
         </dd>
-        <small v-if="!industryLoading && industryProvider">东方财富</small>
-        <small v-else-if="!industryLoading && industryFailure">获取失败</small>
+        <template v-if="!industryLoading && industryFailure">
+          <small class="fact-error">{{ industryFailure }}</small>
+          <small v-if="industryRequestId">请求编号 {{ industryRequestId }}</small>
+          <button type="button" class="fact-retry" @click="emit('retry-industry')">重试行业</button>
+        </template>
+        <small v-else-if="!industryLoading && industryProvider">东方财富</small>
       </div>
       <div>
         <dt>板数</dt>
@@ -280,6 +286,21 @@ function saveNote() {
   display: block;
   color: var(--muted);
   font-size: 10.5px;
+}
+
+.facts .fact-error {
+  color: var(--warn);
+}
+
+.fact-retry {
+  margin-top: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
 }
 
 .mono {

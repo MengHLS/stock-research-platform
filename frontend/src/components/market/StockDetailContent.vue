@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 
 import LimitUpDetail from './LimitUpDetail.vue'
 import { api, callApi } from '../../api/client'
 import { isAuthNotConfigured, type ApiFailure } from '../../api/errors'
-import type { LimitUpReviewRow, ReviewStockSeries } from '../../market/review'
-import type { StockProfile } from '../../market/stock-profile'
+import type { LimitUpReviewRow } from '../../market/review'
+import { useStockDetail } from '../../market/useStockDetail'
 
 const props = defineProps<{
   row: LimitUpReviewRow
@@ -18,14 +18,43 @@ const emit = defineEmits<{
   'save-note': [note: string]
 }>()
 
-const stockSeries = ref<ReviewStockSeries | null>(null)
-const stockLoading = ref(false)
-const stockFailure = ref<ApiFailure | null>(null)
-const stockProfile = ref<StockProfile | null>(null)
-const profileLoading = ref(false)
-const profileFailure = ref<ApiFailure | null>(null)
-let controller: AbortController | null = null
-let sequence = 0
+const {
+  stockSeries,
+  stockLoading,
+  stockFailure,
+  profile: stockProfile,
+  profileLoading,
+  profileFailure,
+  load,
+  retrySeries,
+  retryProfile,
+  clear,
+} = useStockDetail(
+  async (row, windowMax, signal) =>
+    callApi(
+      (requestSignal) =>
+        api.GET('/api/v1/market/review/stock-series', {
+          params: {
+            query: {
+              symbol: row.symbol,
+              date: row.date,
+              window: Math.min(60, Math.max(1, windowMax)),
+            },
+          },
+          signal: requestSignal,
+        }),
+      { access: 'read', signal },
+    ),
+  async (symbol, signal) =>
+    callApi(
+      (requestSignal) =>
+        api.GET('/api/v1/market/stock-profile', {
+          params: { query: { symbol } },
+          signal: requestSignal,
+        }),
+      { access: 'read', signal },
+    ),
+)
 
 const sameSector = computed(() => {
   const row = props.row
@@ -43,60 +72,16 @@ function failureText(failure: ApiFailure): string {
   return failure.message
 }
 
-async function loadDetail() {
-  controller?.abort()
-  const current = new AbortController()
-  controller = current
-  const requestSequence = ++sequence
-  stockLoading.value = true
-  profileLoading.value = true
-  stockFailure.value = null
-  profileFailure.value = null
-  stockSeries.value = null
-  stockProfile.value = null
-  const [seriesResult, profileResult] = await Promise.all([
-    callApi(
-      (signal) =>
-        api.GET('/api/v1/market/review/stock-series', {
-          params: {
-            query: {
-              symbol: props.row.symbol,
-              date: props.row.date,
-              window: Math.min(60, Math.max(1, props.windowMax ?? 60)),
-            },
-          },
-          signal,
-        }),
-      { access: 'read', signal: current.signal },
-    ),
-    callApi(
-      (signal) =>
-        api.GET('/api/v1/market/stock-profile', {
-          params: { query: { symbol: props.row.symbol } },
-          signal,
-        }),
-      { access: 'read', signal: current.signal },
-    ),
-  ])
-  if (controller !== current || requestSequence !== sequence) return
-  stockLoading.value = false
-  profileLoading.value = false
-  if (seriesResult.ok) stockSeries.value = seriesResult.data
-  else if (seriesResult.failure.kind !== 'aborted') stockFailure.value = seriesResult.failure
-  if (profileResult.ok) stockProfile.value = profileResult.data
-  else if (profileResult.failure.kind !== 'aborted') profileFailure.value = profileResult.failure
-}
-
 watch(
   () => [props.row.symbol, props.row.date, props.windowMax] as const,
   () => {
-    void loadDetail()
+    void load(props.row, props.windowMax ?? 60)
   },
   { immediate: true },
 )
 
 onBeforeUnmount(() => {
-  controller?.abort()
+  clear()
 })
 </script>
 
@@ -113,8 +98,10 @@ onBeforeUnmount(() => {
     :industry-provider="stockProfile?.provider ?? null"
     :industry-loading="profileLoading"
     :industry-failure="profileFailure ? failureText(profileFailure) : null"
+    :industry-request-id="profileFailure?.requestId"
     @save-note="emit('save-note', $event)"
     @select="emit('select', $event)"
-    @retry-stock="loadDetail"
+    @retry-stock="retrySeries"
+    @retry-industry="retryProfile"
   />
 </template>
