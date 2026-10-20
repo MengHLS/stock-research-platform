@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AppIcon from '../components/AppIcon'
 import IntradayChart from '../components/market/IntradayChart.vue'
+import MarketIndexKline from '../components/market/MarketIndexKline.vue'
 import MarketSparkline from '../components/market/MarketSparkline.vue'
 import { api, callApi } from '../api/client'
 import { isAuthNotConfigured, type ApiFailure } from '../api/errors'
@@ -30,6 +31,8 @@ import {
   type OpeningAuction,
 } from '../market/intraday'
 import { chartNumber, compareClass, formatNumber, formatSignedPercent } from '../market/review'
+import { klineChartBars, klineLabel, type MarketKlinePeriod } from '../market/kline'
+import { useMarketKline } from '../market/useMarketKline'
 import { useSession } from '../stores/session'
 
 interface WatchQuoteState {
@@ -53,6 +56,9 @@ interface Reading {
   tone?: string
 }
 
+type ChartMode = 'intraday' | MarketKlinePeriod
+const chartModes: ChartMode[] = ['intraday', 'day', 'week']
+
 const route = useRoute()
 const router = useRouter()
 const session = useSession()
@@ -71,6 +77,7 @@ const bars = ref<IntradayBar[]>([])
 const intradayLimits = ref<string[]>([])
 const intradayTotal = ref(0)
 const auction = ref<OpeningAuction | null>(null)
+const chartMode = ref<ChartMode>('intraday')
 
 const quoteLoading = ref(false)
 const intradayLoading = ref(false)
@@ -78,6 +85,24 @@ const auctionLoading = ref(false)
 const quoteFailure = ref<ApiFailure | null>(null)
 const intradayFailure = ref<ApiFailure | null>(null)
 const auctionFailure = ref<ApiFailure | null>(null)
+
+const {
+  series: klineSeries,
+  loading: klineLoading,
+  failure: klineFailure,
+  load: loadKline,
+  retry: retryKline,
+  reset: resetKline,
+} = useMarketKline(async (symbol, period, limit, signal) =>
+  callApi(
+    (requestSignal) =>
+      api.GET('/api/v1/market/kline', {
+        params: { query: { symbol, period, limit } },
+        signal: requestSignal,
+      }),
+    { access: 'read', signal },
+  ),
+)
 
 let watchController: AbortController | null = null
 let detailController: AbortController | null = null
@@ -153,6 +178,30 @@ const auctionProviderLabel = computed(() => {
   return '腾讯'
 })
 const latestBar = computed(() => bars.value.at(-1) ?? null)
+const chartBars = computed(() => klineChartBars(klineSeries.value))
+const klineLimits = computed(() => klineSeries.value?.limits ?? [])
+const chartSelectedDate = computed(
+  () => chartBars.value.at(-1)?.date ?? klineSeries.value?.bars.at(-1)?.trading_day ?? '',
+)
+const chartTitle = computed(() => {
+  if (chartMode.value === 'day') return '日线 · 不复权'
+  if (chartMode.value === 'week') return '周线 · 不复权'
+  return '当日分时 · 价格与成交量'
+})
+const chartSubtitle = computed(() => {
+  if (chartMode.value === 'intraday') {
+    return `${selectedCode.value} · 1 分钟线 · ${formatShanghaiTime(latestBar.value?.start)}`
+  }
+  return `${selectedCode.value} · ${chartBars.value.length || klineSeries.value?.total || 0} 根${
+    klineSeries.value?.week_in_progress ? ' · 本周未完结' : ''
+  }`
+})
+const chartTag = computed(() => {
+  if (chartMode.value === 'intraday') {
+    return `同日 ${bars.value.length} / 返回 ${intradayTotal.value || bars.value.length} 根`
+  }
+  return klineSeries.value ? `MA5 · MA20 · ${chartBars.value.length} 根` : '日/周 K'
+})
 
 const readings = computed<Reading[]>(() => {
   const item = quote.value
@@ -279,7 +328,9 @@ watch(routeCode, (code) => {
 watch(
   selectedCode,
   () => {
+    resetKline()
     void loadSelected()
+    if (chartMode.value !== 'intraday') loadSelectedKline()
   },
   { immediate: true },
 )
@@ -300,6 +351,21 @@ function updateCodeQuery(code: string | null) {
 function selectCode(code: string) {
   if (routeCode.value === code) return
   updateCodeQuery(code)
+}
+
+function loadSelectedKline(options: { force?: boolean } = {}) {
+  if (chartMode.value === 'intraday' || !selectedCode.value) return
+  void loadKline(
+    selectedCode.value,
+    chartMode.value,
+    chartMode.value === 'week' ? 60 : 120,
+    options,
+  )
+}
+
+function chooseChart(mode: ChartMode) {
+  chartMode.value = mode
+  if (mode !== 'intraday') loadSelectedKline()
 }
 
 function preferredStoredCode(raw: unknown, stored: string[]): string | null {
@@ -364,6 +430,7 @@ function refreshAll() {
   void loadMarketSession()
   void loadSelected()
   void loadWatchQuotes(watchCodes.value)
+  if (chartMode.value !== 'intraday') retryKline()
 }
 
 function requestWatchRows() {
@@ -564,6 +631,7 @@ onBeforeUnmount(() => {
   watchController?.abort()
   detailController?.abort()
   sessionController?.abort()
+  resetKline()
   detailSequence += 1
 })
 </script>
@@ -770,41 +838,96 @@ onBeforeUnmount(() => {
             <section class="panel chart-panel">
               <header class="panel-head">
                 <div>
-                  <h2>当日分时 · 价格与成交量</h2>
-                  <p>{{ selectedCode }} · 1 分钟线 · {{ formatShanghaiTime(latestBar?.start) }}</p>
+                  <h2>{{ chartTitle }}</h2>
+                  <p>{{ chartSubtitle }}</p>
                 </div>
-                <span class="panel-tag">
-                  同日 {{ bars.length }} / 返回 {{ intradayTotal || bars.length }} 根
-                </span>
+                <div class="chart-head-actions">
+                  <div class="chart-mode-switch" role="group" aria-label="图表周期">
+                    <button
+                      v-for="mode in chartModes"
+                      :key="mode"
+                      type="button"
+                      :class="{ active: chartMode === mode }"
+                      :aria-pressed="chartMode === mode"
+                      @click="chooseChart(mode)"
+                    >
+                      {{ mode === 'intraday' ? '分时' : klineLabel(mode) }}
+                    </button>
+                  </div>
+                  <span class="panel-tag">{{ chartTag }}</span>
+                </div>
               </header>
               <div class="panel-body">
                 <div
                   class="chart-layout"
-                  :class="{ 'chart-layout--with-readings': readings.length }"
+                  :class="{
+                    'chart-layout--with-readings': chartMode === 'intraday' && readings.length,
+                  }"
                 >
                   <div class="chart-main">
-                    <div v-if="intradayLoading" class="panel-state">正在读取一分钟行情…</div>
-                    <div
-                      v-else-if="intradayFailure"
-                      class="panel-state panel-state--error"
-                      role="alert"
-                    >
-                      <b>{{ failureText(intradayFailure) }}</b>
-                      <span v-if="intradayFailure.requestId">
-                        请求编号 {{ intradayFailure.requestId }}
-                      </span>
-                      <button type="button" @click="retrySelected">重试分钟线</button>
-                    </div>
-                    <div v-else-if="!bars.length" class="panel-state">暂无分钟线数据。</div>
-                    <div v-else class="chart-scroll">
-                      <IntradayChart :bars="bars" :previous-close="quote?.previous_close" />
-                    </div>
-                    <ul v-if="intradayLimits.length" class="limit-list">
-                      <li v-for="limit in intradayLimits" :key="limit">{{ limit }}</li>
-                    </ul>
+                    <template v-if="chartMode === 'intraday'">
+                      <div v-if="intradayLoading" class="panel-state">正在读取一分钟行情…</div>
+                      <div
+                        v-else-if="intradayFailure"
+                        class="panel-state panel-state--error"
+                        role="alert"
+                      >
+                        <b>{{ failureText(intradayFailure) }}</b>
+                        <span v-if="intradayFailure.requestId">
+                          请求编号 {{ intradayFailure.requestId }}
+                        </span>
+                        <button type="button" @click="retrySelected">重试分钟线</button>
+                      </div>
+                      <div v-else-if="!bars.length" class="panel-state">
+                        <span>暂无分钟线数据。</span>
+                        <button type="button" @click="retrySelected">重新读取分时</button>
+                      </div>
+                      <div v-else class="chart-scroll">
+                        <IntradayChart :bars="bars" :previous-close="quote?.previous_close" />
+                      </div>
+                      <ul v-if="intradayLimits.length" class="limit-list">
+                        <li v-for="limit in intradayLimits" :key="limit">{{ limit }}</li>
+                      </ul>
+                    </template>
+                    <template v-else>
+                      <div v-if="klineLoading" class="panel-state">
+                        正在读取{{ klineLabel(chartMode) }}…
+                      </div>
+                      <div
+                        v-else-if="klineFailure"
+                        class="panel-state panel-state--error"
+                        role="alert"
+                      >
+                        <b>{{ failureText(klineFailure) }}</b>
+                        <span v-if="klineFailure.requestId">
+                          请求编号 {{ klineFailure.requestId }}
+                        </span>
+                        <button type="button" @click="retryKline">
+                          重试{{ klineLabel(chartMode) }}
+                        </button>
+                      </div>
+                      <div v-else-if="!chartBars.length" class="panel-state">
+                        <span>暂无{{ klineLabel(chartMode) }}数据。</span>
+                        <button type="button" @click="retryKline">
+                          重新读取{{ klineLabel(chartMode) }}
+                        </button>
+                      </div>
+                      <div v-else class="chart-scroll">
+                        <MarketIndexKline
+                          :bars="chartBars"
+                          :selected-date="chartSelectedDate"
+                          :chart-label="klineLabel(chartMode)"
+                          volume-label="成交量 · 股"
+                          :aria-label="`${klineLabel(chartMode)}、MA5、MA20 与成交量`"
+                        />
+                      </div>
+                      <ul v-if="klineLimits.length" class="limit-list">
+                        <li v-for="limit in klineLimits" :key="limit">{{ limit }}</li>
+                      </ul>
+                    </template>
                   </div>
                   <aside
-                    v-if="readings.length"
+                    v-if="chartMode === 'intraday' && readings.length"
                     class="chart-readings"
                     role="group"
                     aria-label="盘中读数"
@@ -1609,6 +1732,40 @@ onBeforeUnmount(() => {
 .panel-tag.warn {
   border-color: color-mix(in oklab, var(--warn) 40%, var(--border));
   color: var(--warn);
+}
+
+.chart-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chart-mode-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+}
+
+.chart-mode-switch button {
+  min-height: 26px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.chart-mode-switch button.active {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--fg) 10%, transparent);
 }
 
 .panel-body {

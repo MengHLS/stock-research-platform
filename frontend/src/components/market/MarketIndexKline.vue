@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import type { IndexSeries } from '../../market/review'
 import { buildCandleData, chartNumber, findPriceExtremes, formatNumber } from '../../market/review'
 import { linePath, sparseAxisIndexes, splitLineSegments } from '../../market/chart'
+import type { KlineChartBar } from '../../market/kline'
 import { useChartViewport } from '../../market/useChartViewport'
 
 const props = withDefaults(
   defineProps<{
-    bars: IndexSeries['bars']
+    bars: KlineChartBar[]
     selectedDate: string
     showVolume?: boolean
+    chartLabel?: string
+    volumeLabel?: string
+    ariaLabel?: string
   }>(),
   {
     showVolume: true,
+    chartLabel: '日 K',
+    volumeLabel: '成交量 · 源单位',
+    ariaLabel: '',
   },
 )
 
@@ -72,6 +78,9 @@ const selectedIndex = computed(() => props.bars.findIndex((bar) => bar.date === 
 const activeIndex = computed(() => hoverIndex.value ?? selectedIndex.value)
 const activeBar = computed(() =>
   activeIndex.value >= 0 ? (props.bars[activeIndex.value] ?? null) : null,
+)
+const chartAriaLabel = computed(
+  () => props.ariaLabel || (props.showVolume ? 'K 线、MA5、MA20 与成交量' : 'K 线与 MA5、MA20'),
 )
 
 function xFor(index: number) {
@@ -200,16 +209,16 @@ function moveCursor(step: number) {
 <template>
   <div ref="chartHost" class="chart-wrap">
     <div class="legend">
-      <span><i class="legend-candle" />日 K</span>
+      <span><i class="legend-candle" />{{ chartLabel }}</span>
       <span><i class="legend-line legend-line--ma5" />MA5</span>
       <span><i class="legend-line legend-line--ma20" />MA20</span>
-      <span v-if="showVolume"><i class="legend-volume" />成交量 · 源单位</span>
+      <span v-if="showVolume"><i class="legend-volume" />{{ volumeLabel }}</span>
     </div>
     <svg
       class="kline-chart"
       :viewBox="`0 0 ${width} ${height}`"
       role="img"
-      :aria-label="showVolume ? '指数日 K 线、MA5、MA20 与成交量' : '指数日 K 线与 MA5、MA20'"
+      :aria-label="chartAriaLabel"
       tabindex="0"
       @pointermove="setHoverFromPointer"
       @pointerleave="hoverIndex = null"
@@ -296,7 +305,7 @@ function moveCursor(step: number) {
         :y2="volumeTop - 12"
       />
       <template v-if="showVolume && hasVolume">
-        <text class="axis-title" :x="plotLeft" :y="volumeTop - 2">成交量 · 源单位</text>
+        <text class="axis-title" :x="plotLeft" :y="volumeTop - 2">{{ volumeLabel }}</text>
         <g v-for="tick in volumeTicks" :key="`volume-tick-${tick}`">
           <line
             class="grid-line"

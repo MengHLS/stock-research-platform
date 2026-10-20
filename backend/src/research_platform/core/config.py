@@ -91,6 +91,7 @@ class UpstreamConfig(BaseModel):
     quote_cache_seconds: int = Field(default=5, ge=0, le=300)
     profile_cache_seconds: int = Field(default=3600, ge=0, le=24 * 3600)
     intraday_cache_seconds: int = Field(default=30, ge=0, le=3600)
+    kline_cache_seconds: int = Field(default=300, ge=0, le=24 * 3600)
     global_overview_refresh_seconds: int = Field(default=60, ge=0, le=3600)
     global_history_refresh_seconds: int = Field(default=3600, ge=0, le=7 * 24 * 3600)
     global_history_workers: int = Field(default=6, ge=1, le=10)

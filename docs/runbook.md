@@ -75,14 +75,14 @@ db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 
 
 ## 公共行情数据源
 
-腾讯分钟K线/竞价、东方财富竞价与股票行业资料**无需配置**，只读、无 key；Tushare 日线可选，需 `RP_TUSHARE__TOKEN`。字段见 `.env.example`；`RP_UPSTREAM__*` 控制超时、重试、按源最小间隔与缓存秒数，`enabled=false` 时接口返回 `MARKET_SOURCE_DISABLED` 且不发任何外网请求。
+腾讯分钟/日/周K线、竞价、东方财富竞价与股票行业资料**无需配置**，只读、无 key；Tushare 日线可选，需 `RP_TUSHARE__TOKEN`。字段见 `.env.example`；`RP_UPSTREAM__*` 控制超时、重试、按源最小间隔与缓存秒数，`enabled=false` 时接口返回 `MARKET_SOURCE_DISABLED` 且不发任何外网请求。
 
 | 接口 | 来源 | 说明 |
 |---|---|---|
 | `GET /api/v1/market/quote` | 腾讯 | 实时快照：最新价/昨收/涨跌停/行情时间；覆盖沪深北与指数，盘前竞价时段也可读 |
 | `GET /api/v1/market/stock-profile` | 东方财富 | `symbol`；返回名称与 `f127` 行业分类，取不到行业时返回 `industry=null`；默认缓存 1 小时 |
 | `GET /api/v1/market/global/overview` | 新浪/东方财富/雅虎 + 腾讯/Naver/Yahoo Japan + 应用库 | 登录后读取跨市场概览，`window=20|60|120`；报价先取第一个完整批量源，日线并发刷新且受 8 秒默认同步预算约束；应用库优先，失败回退最近快照并标记 `stale` |
-| `GET /api/v1/market/intraday` | 腾讯 | `symbol`、`period=m1|m5|m15|m30|m60`、`limit<=800`；无北交所 |
+| `GET /api/v1/market/intraday`、`kline` | 腾讯 | 分钟线 `period=m1|m5|m15|m30|m60`、`limit<=800`，无北交所；日/周线 `period=day|week`、`limit=20..160`，不复权，周线未完结时返回 `week_in_progress=true` |
 | `GET /api/v1/market/auction` | 东财曲线 + 新浪成交 | 09:15–09:25 虚拟撮合曲线来自东财（`push2`/`push2his` 多主机轮换）；09:25 实际成交优先东财，降级时来自新浪（沪深北/科创/ETF/指数全覆盖、股数精确）。全部失败时 `degraded=true`、`snapshots=[]`，前端必须显示降级状态 |
 | `GET /api/v1/market/daily` | Tushare | `symbol`、可选 `start`/`end`（YYYY-MM-DD） |
 | `GET /api/v1/market/state/description` | 冻结市场状态 | 登录后按 `date` 读取5日/20日/60日描述；未知日期404，源未配置503，哈希不符502 |

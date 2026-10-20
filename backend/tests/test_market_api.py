@@ -11,7 +11,7 @@ from research_platform.core.upstream import UpstreamClient
 from research_platform.main import create_app
 from research_platform.modules.market.service import MarketService
 
-KLINE = json.dumps(
+INTRADAY_KLINE = json.dumps(
     {
         "code": 0,
         "msg": "",
@@ -57,16 +57,38 @@ PROFILE = json.dumps(
     }
 )
 
+KLINE = json.dumps(
+    {
+        "code": 0,
+        "data": {
+            "sh600519": {
+                "day": [
+                    [
+                        "2026-10-20",
+                        "1321.010",
+                        "1331.880",
+                        "1335.000",
+                        "1316.140",
+                        "34136.000",
+                    ]
+                ]
+            }
+        },
+    }
+)
+
 
 @pytest.fixture
 def market_client(database_url):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/appstock/app/kline/mkline":
-            return httpx.Response(200, text=KLINE)
+            return httpx.Response(200, text=INTRADAY_KLINE)
         if request.url.path == "/api/qt/stock/trends2/get":
             return httpx.Response(200, text=AUCTION)
         if request.url.path == "/api/qt/stock/get":
             return httpx.Response(200, text=PROFILE)
+        if request.url.path == "/appstock/app/kline/kline":
+            return httpx.Response(200, text=KLINE)
         raise AssertionError(f"unexpected upstream call: {request.url}")
 
     settings = Settings(
@@ -122,6 +144,20 @@ def test_stock_profile_route_exposes_industry_and_provider(market_client):
         "industry": "白酒Ⅱ",
         "provider": "eastmoney",
     }
+
+
+def test_kline_route_exposes_unadjusted_daily_bars(market_client):
+    body = market_client.get(
+        "/api/v1/market/kline",
+        params={"symbol": "600519.SH", "period": "day", "limit": 20},
+    ).json()
+
+    assert body["symbol"] == "600519.SH"
+    assert body["period"] == "day"
+    assert body["adjustment"] == "none"
+    assert body["provider"] == "tencent"
+    assert body["bars"][0]["trading_day"] == "2026-10-20"
+    assert body["bars"][0]["close"] == "1331.880"
 
 
 @pytest.mark.parametrize(

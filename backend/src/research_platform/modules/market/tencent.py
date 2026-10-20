@@ -1,9 +1,11 @@
-"""Tencent public quote endpoints: intraday K lines and the auction trade fallback.
+"""Tencent public quote endpoints: K lines and the auction trade fallback.
 
 Endpoints (undocumented public web APIs, no key, no login):
 
 - ``ifzq.gtimg.cn/appstock/app/kline/mkline?param=<qq_code>,<period>,,<count>``
   for minute bars;
+- ``ifzq.gtimg.cn/appstock/app/kline/kline?param=<qq_code>,<period>,,,<count>``
+  for unadjusted daily and weekly bars;
 - ``stock.gtimg.cn/data/index.php?appn=detail&action=data&c=<qq_code>&p=0`` for
   the per-trade detail of the most recent trading day (page 0 begins with the
   09:25 opening-auction trade).
@@ -31,15 +33,17 @@ from research_platform.core.errors import DomainError
 from research_platform.core.upstream import UpstreamClient
 
 from .market_time import MARKET_TZ, parse_minute_timestamp
-from .parsing import finite_decimal
+from .parsing import finite_decimal, parse_day
 from .symbols import Symbol, shares, tencent_volume_unit
 
 PROVIDER = "tencent"
 KLINE_URL = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
+KLINE_DAILY_URL = "https://ifzq.gtimg.cn/appstock/app/kline/kline"
 TICK_URL = "https://stock.gtimg.cn/data/index.php"
 HEADERS = {"Referer": "https://gu.qq.com/"}
 
 PERIOD_MINUTES: dict[str, int] = {"m1": 1, "m5": 5, "m15": 15, "m30": 30, "m60": 60}
+KLINE_PERIODS = frozenset({"day", "week"})
 MAX_BARS = 800
 
 _TICK_LINE = re.compile(
@@ -75,6 +79,20 @@ class AuctionTrade:
         self.price = price
         self.volume_shares = volume_shares
         self.amount = amount
+
+
+class KlineBar:
+    __slots__ = ("trading_day", "open", "high", "low", "close", "volume_shares")
+
+    def __init__(
+        self, trading_day, open_: str, high: str, low: str, close: str, volume_shares: str
+    ) -> None:
+        self.trading_day = trading_day
+        self.open = open_
+        self.high = high
+        self.low = low
+        self.close = close
+        self.volume_shares = volume_shares
 
 
 class TencentSource:
@@ -150,6 +168,31 @@ class TencentSource:
         volume = shares(parts[4], "lots")
         return AuctionTrade(clock, trading_day, parts[2], volume, parts[5])
 
+    def kline(self, symbol: Symbol, period: str, limit: int) -> list[KlineBar]:
+        if period not in KLINE_PERIODS:
+            raise DomainError("MARKET_SYMBOL_INVALID", "不支持的 K 线周期。")
+        if not symbol.is_tencent_supported:
+            raise DomainError("MARKET_DATA_UNAVAILABLE", "腾讯行情不覆盖北交所标的。")
+        count = max(1, min(limit, MAX_BARS))
+        payload = self._client.get_json(
+            provider=PROVIDER,
+            url=KLINE_DAILY_URL,
+            params={"param": f"{symbol.qq_code},{period},,,{count}"},
+            headers=HEADERS,
+        )
+        node = _node(payload, symbol)
+        rows = node.get(period)
+        if rows is None or rows == []:
+            raise DomainError("MARKET_DATA_UNAVAILABLE")
+        if not isinstance(rows, list):
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+        unit = tencent_volume_unit(symbol)
+        bars = [_kline_bar(row, unit) for row in rows]
+        bars.sort(key=lambda item: item.trading_day)
+        if len({item.trading_day for item in bars}) != len(bars):
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+        return bars[-count:]
+
 
 def _node(payload, symbol: Symbol) -> dict:
     if not isinstance(payload, dict) or payload.get("code") != 0:
@@ -181,4 +224,23 @@ def _bar(row, unit) -> IntradayBar:
         low=str(row[4]),
         close=str(row[2]),
         volume_shares=volume,
+    )
+
+
+def _kline_bar(row, unit) -> KlineBar:
+    if not isinstance(row, list) or len(row) < 6:
+        raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+    try:
+        trading_day = parse_day(str(row[0]), "%Y-%m-%d")
+    except ValueError:
+        raise DomainError("MARKET_SOURCE_BAD_RESPONSE") from None
+    for value in row[1:6]:
+        finite_decimal(value)
+    return KlineBar(
+        trading_day=trading_day,
+        open_=str(row[1]),
+        close=str(row[2]),
+        high=str(row[3]),
+        low=str(row[4]),
+        volume_shares=shares(str(row[5]), unit),
     )

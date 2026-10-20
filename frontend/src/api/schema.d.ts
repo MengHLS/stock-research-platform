@@ -236,6 +236,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/market/kline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Market Kline
+         * @description 日/周 K：腾讯公开源，不复权；周线标记未完结周。
+         */
+        get: operations["get_market_kline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/market/quote": {
         parameters: {
             query?: never;
@@ -1084,6 +1104,57 @@ export interface components {
             margin_balance_100m_cny?: string | null;
             /** Themes */
             themes?: components["schemas"]["ThemeCountRead"][];
+        };
+        /** MarketKlineBarRead */
+        MarketKlineBarRead: {
+            /**
+             * Trading Day
+             * Format: date
+             */
+            trading_day: string;
+            /** Open */
+            open: string;
+            /** High */
+            high: string;
+            /** Low */
+            low: string;
+            /** Close */
+            close: string;
+            /** Volume Shares */
+            volume_shares: string;
+        };
+        /** MarketKlineSeriesRead */
+        MarketKlineSeriesRead: {
+            /** Symbol */
+            symbol: string;
+            /**
+             * Period
+             * @enum {string}
+             */
+            period: "day" | "week";
+            /**
+             * Provider
+             * @default tencent
+             * @constant
+             */
+            provider: "tencent";
+            /**
+             * Adjustment
+             * @default none
+             * @constant
+             */
+            adjustment: "none";
+            /**
+             * Week In Progress
+             * @default false
+             */
+            week_in_progress: boolean;
+            /** Bars */
+            bars: components["schemas"]["MarketKlineBarRead"][];
+            /** Total */
+            total: number;
+            /** Limits */
+            limits?: string[];
         };
         /** MarketSessionRead */
         MarketSessionRead: {
@@ -3097,6 +3168,121 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntradaySeries"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_market_kline: {
+        parameters: {
+            query: {
+                /** @description 规范形态 600519.SH；也接受 600519 / sh600519 / sh.600519 / 600519.sh */
+                symbol: string;
+                period?: "day" | "week";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketKlineSeriesRead"];
                 };
             };
             /** @description Request cannot be processed */

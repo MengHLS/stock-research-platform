@@ -32,7 +32,7 @@ from research_platform.core.upstream import UpstreamClient
 from .eastmoney import AuctionResult, EastmoneySource
 from .global_source import GlobalMarketSource
 from .global_types import GLOBAL_INSTRUMENTS
-from .market_time import MARKET_TZ, at_market_clock, exchange_now, session_phase
+from .market_time import CONTINUOUS_END, MARKET_TZ, at_market_clock, exchange_now, session_phase
 from .models import GlobalMarketDailyBar, GlobalMarketQuoteSnapshot, utc_now
 from .parsing import parse_day
 from .schemas import (
@@ -47,6 +47,9 @@ from .schemas import (
     GlobalMarketOverviewRead,
     GlobalMarketQuoteRead,
     IntradaySeries,
+    KlinePeriod,
+    MarketKlineBarRead,
+    MarketKlineSeriesRead,
     QuoteRead,
     SourceStatus,
     SourceStatusList,
@@ -150,6 +153,51 @@ class MarketService:
             )
 
         return self._cache.get_or_create(key, self._settings.upstream.intraday_cache_seconds, load)
+
+    def kline(self, raw_symbol: str, period: KlinePeriod, limit: int) -> MarketKlineSeriesRead:
+        symbol = parse_symbol(raw_symbol)
+        key = ("kline", symbol.display, period, limit)
+
+        def load() -> MarketKlineSeriesRead:
+            bars = self._tencent.kline(symbol, period, limit)
+            latest = bars[-1].trading_day if bars else None
+            current_time = exchange_now()
+            current = current_time.date()
+            week_in_progress = bool(
+                period == "week"
+                and latest is not None
+                and latest.isocalendar()[:2] == current.isocalendar()[:2]
+                and (
+                    current_time.isoweekday() < 5
+                    or (
+                        current_time.isoweekday() == 5
+                        and current_time.strftime("%H:%M") < CONTINUOUS_END
+                    )
+                )
+            )
+            limits = ["腾讯日/周 K 为不复权价格。"]
+            if week_in_progress:
+                limits.append("最后一周尚未收周，周 bar 会随交易日更新。")
+            return MarketKlineSeriesRead(
+                symbol=symbol.display,
+                period=period,
+                bars=[
+                    MarketKlineBarRead(
+                        trading_day=bar.trading_day,
+                        open=bar.open,
+                        high=bar.high,
+                        low=bar.low,
+                        close=bar.close,
+                        volume_shares=bar.volume_shares,
+                    )
+                    for bar in bars
+                ],
+                total=len(bars),
+                week_in_progress=week_in_progress,
+                limits=limits,
+            )
+
+        return self._cache.get_or_create(key, self._settings.upstream.kline_cache_seconds, load)
 
     def auction(self, raw_symbol: str) -> AuctionRead:
         """Opening auction: the 09:15–09:25 curve when Eastmoney answers, else the match.
@@ -739,7 +787,12 @@ class MarketService:
                 SourceStatus(
                     name="tencent",
                     configured=True,
-                    capabilities=["quote", "intraday_kline", "opening_auction_fallback"],
+                    capabilities=[
+                        "quote",
+                        "intraday_kline",
+                        "daily_weekly_kline",
+                        "opening_auction_fallback",
+                    ],
                     note=SOURCE_NOTES["tencent"],
                 ),
                 SourceStatus(

@@ -24,6 +24,8 @@ from .schemas import (
     DailySeries,
     GlobalMarketOverviewRead,
     IntradaySeries,
+    KlinePeriod,
+    MarketKlineSeriesRead,
     MarketSessionRead,
     Period,
     QuoteRead,
@@ -113,6 +115,22 @@ def get_intraday(
 ):
     """日内K线（腾讯公共源）；短期缓存，不落库。"""
     return service.intraday(symbol, period, limit)
+
+
+@router.get(
+    "/kline",
+    response_model=MarketKlineSeriesRead,
+    operation_id="get_market_kline",
+    dependencies=[Depends(require_query(frozenset({"symbol", "period", "limit"})))],
+)
+def get_market_kline(
+    service: ServiceDep,
+    symbol: SymbolQuery,
+    period: Annotated[KlinePeriod, Query()] = "day",
+    limit: Annotated[int, Query(ge=20, le=160)] = 120,
+):
+    """日/周 K：腾讯公开源，不复权；周线标记未完结周。"""
+    return service.kline(symbol, period, limit)
 
 
 @router.get(

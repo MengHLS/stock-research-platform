@@ -6,7 +6,7 @@ are about our contract, not about a vendor being reachable.
 """
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import httpx2 as httpx
 import pytest
@@ -16,6 +16,7 @@ from research_platform.core.config import Settings
 from research_platform.core.errors import DomainError
 from research_platform.core.upstream import UpstreamClient
 from research_platform.modules.market.eastmoney import EastmoneySource
+from research_platform.modules.market.market_time import MARKET_TZ
 from research_platform.modules.market.service import MarketService
 from research_platform.modules.market.symbols import parse_symbol, tencent_volume_unit
 from research_platform.modules.market.tencent import TencentSource
@@ -65,6 +66,15 @@ def trends_payload(rows, pre_close="1312.97"):
 
 def profile_payload(*, code="600519", name="贵州茅台", industry="白酒Ⅱ"):
     return json.dumps({"data": {"f57": code, "f58": name, "f127": industry}})
+
+
+def market_kline_payload(period="day", rows=None, symbol="sh600519"):
+    if rows is None:
+        rows = [
+            ["2026-10-19", "1322.500", "1324.970", "1348.600", "1321.000", "39729.000"],
+            ["2026-10-20", "1321.010", "1331.880", "1335.000", "1316.140", "34136.000"],
+        ]
+    return json.dumps({"code": 0, "data": {symbol: {period: rows}}})
 
 
 def auction_rows(*, with_match=True, star=False):
@@ -497,6 +507,54 @@ def test_stock_profile_rejects_a_provider_identity_mismatch():
         service.stock_profile("600519")
 
     assert failure.value.code == "MARKET_SOURCE_BAD_RESPONSE"
+
+
+def test_daily_kline_is_unadjusted_and_cached():
+    calls = []
+
+    def payload(request):
+        calls.append(request)
+        assert request.url.params["param"] == "sh600519,day,,,120"
+        return httpx.Response(200, text=market_kline_payload())
+
+    service = make_service({"/appstock/app/kline/kline": payload})
+    first = service.kline("600519", "day", 120)
+    second = service.kline("600519.SH", "day", 120)
+
+    assert first == second
+    assert first.adjustment == "none"
+    assert first.provider == "tencent"
+    assert first.week_in_progress is False
+    assert str(first.bars[-1].close) == "1331.880"
+    assert str(first.bars[-1].volume_shares) == "3413600"
+    assert len(calls) == 1
+
+
+def test_weekly_kline_marks_an_incomplete_current_week(monkeypatch):
+    monkeypatch.setattr(
+        "research_platform.modules.market.service.exchange_now",
+        lambda: datetime(2026, 10, 21, 10, 0, tzinfo=MARKET_TZ),
+    )
+    service = make_service({"/appstock/app/kline/kline": market_kline_payload("week")})
+
+    weekly = service.kline("600519", "week", 60)
+
+    assert weekly.period == "week"
+    assert weekly.week_in_progress is True
+    assert "最后一周尚未收周" in " ".join(weekly.limits)
+
+
+def test_weekly_kline_is_complete_after_friday_close(monkeypatch):
+    monkeypatch.setattr(
+        "research_platform.modules.market.service.exchange_now",
+        lambda: datetime(2026, 10, 23, 15, 0, tzinfo=MARKET_TZ),
+    )
+    service = make_service({"/appstock/app/kline/kline": market_kline_payload("week")})
+
+    weekly = service.kline("600519", "week", 60)
+
+    assert weekly.week_in_progress is False
+    assert "最后一周尚未收周" not in " ".join(weekly.limits)
 
 
 # --- auction degradation: Eastmoney curve is unreachable ------------------

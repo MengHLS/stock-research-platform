@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Provider = Literal["tencent", "eastmoney", "sina", "tushare"]
 Period = Literal["m1", "m5", "m15", "m30", "m60"]
+KlinePeriod = Literal["day", "week"]
 Phase = Literal["opening_auction", "pre_open", "continuous", "lunch_break", "closed"]
 
 
@@ -94,6 +95,30 @@ class DailySeries(BaseModel):
     provider: Literal["tushare"] = "tushare"
     bars: list[DailyBarRead]
     total: int
+
+
+class MarketKlineBarRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trading_day: date
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume_shares: Decimal
+
+
+class MarketKlineSeriesRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str
+    period: KlinePeriod
+    provider: Literal["tencent"] = "tencent"
+    adjustment: Literal["none"] = "none"
+    week_in_progress: bool = False
+    bars: list[MarketKlineBarRead]
+    total: int
+    limits: list[str] = Field(default_factory=list)
 
 
 class QuoteRead(BaseModel):
