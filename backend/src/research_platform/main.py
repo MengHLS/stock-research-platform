@@ -85,6 +85,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.review,
         market_state_counts=app.state.market_state,
     )
+    app.state.market_state = MarketStateDescriptionService(
+        FrozenMarketStateSource(settings.market_state.root) if settings.market_state else None,
+        settings.market_state,
+    )
     install_error_handlers(app)
     # Added last so it is outermost: ids exist before any handler or route runs.
     app.add_middleware(RequestContextMiddleware)
