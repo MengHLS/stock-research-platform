@@ -19,6 +19,11 @@ IssueCode = Literal[
     "history_window_truncated",
     "index_history_missing",
     "stock_history_missing",
+    "market_state_counts_unavailable",
+    "market_state_counts_not_configured",
+    "market_state_counts_source_unavailable",
+    "market_state_counts_source_bad_data",
+    "market_state_counts_unverified",
 ]
 
 
@@ -56,6 +61,10 @@ class ReviewDateRead(BaseModel):
     limit_up: CoverageRead
     market_wide: CoverageRead
     indices: IndexCoverageRead
+    market_state_counts: CoverageRead | None = None
+    market_state_coverage_status: str | None = None
+    limit_up_close_count: int | None = Field(default=None, ge=0)
+    limit_down_close_count: int | None = Field(default=None, ge=0)
 
 
 class ReviewDatesRead(BaseModel):
@@ -137,6 +146,14 @@ class MaxBoardStockRead(BaseModel):
     name: str
 
 
+class HighBoardStockRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str
+    name: str
+    boards: int = Field(ge=6)
+
+
 class OverviewIndexRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -162,6 +179,7 @@ class MarketHistoryRowRead(BaseModel):
     broken_connection_count: int | None = None
     max_board_stock_total: int | None = None
     max_board_stocks: list[MaxBoardStockRead] = Field(default_factory=list)
+    high_board_stocks: list[HighBoardStockRead] = Field(default_factory=list)
     unknown_fields: list[str] = Field(default_factory=list)
     turnover_100m_cny: Decimal | None = None
     margin_balance_100m_cny: Decimal | None = None

@@ -154,11 +154,35 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
         ErrorCategory.UNAVAILABLE,
         "历史复盘数据源暂不可用。",
     ),
+    "MARKET_REVIEW_SOURCE_AUTH_FAILED": ErrorSpec(
+        "MARKET_REVIEW_SOURCE_AUTH_FAILED",
+        503,
+        ErrorCategory.UNAVAILABLE,
+        "历史复盘数据源认证或授权失败，请检查源库账号、密码和访问白名单。",
+    ),
     "MARKET_REVIEW_SOURCE_BAD_DATA": ErrorSpec(
         "MARKET_REVIEW_SOURCE_BAD_DATA",
         502,
         ErrorCategory.UNAVAILABLE,
         "历史复盘数据源包含无法识别的数据。",
+    ),
+    "MARKET_STATE_DATE_UNAVAILABLE": ErrorSpec(
+        "MARKET_STATE_DATE_UNAVAILABLE",
+        404,
+        ErrorCategory.NOT_FOUND,
+        "该日期没有可用的市场状态。",
+    ),
+    "MARKET_STATE_SOURCE_UNAVAILABLE": ErrorSpec(
+        "MARKET_STATE_SOURCE_UNAVAILABLE",
+        503,
+        ErrorCategory.UNAVAILABLE,
+        "市场状态数据源暂不可用。",
+    ),
+    "MARKET_STATE_SOURCE_BAD_DATA": ErrorSpec(
+        "MARKET_STATE_SOURCE_BAD_DATA",
+        502,
+        ErrorCategory.UNAVAILABLE,
+        "市场状态数据源未通过完整性校验。",
     ),
     "DATABASE_UNAVAILABLE": ErrorSpec(
         "DATABASE_UNAVAILABLE", 503, ErrorCategory.UNAVAILABLE, "数据库暂不可用。"

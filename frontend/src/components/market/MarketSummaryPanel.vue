@@ -208,7 +208,7 @@ function comparisonClass(metric: (typeof metrics.value)[number]) {
           <span v-if="overview.window_actual < overview.window_requested" class="context-tag warn">
             仅 {{ overview.window_actual }} 个交易日
           </span>
-          <span class="context-tag context-tag--quiet">仅确认源记录存在</span>
+          <span class="context-tag context-tag--quiet">完整度未验证</span>
         </div>
         <div class="context-note">
           前一交易日基准

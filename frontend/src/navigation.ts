@@ -39,7 +39,7 @@ export const navGroups: NavGroup[] = [
       {
         path: '/market/limit-up',
         id: 'limit-up',
-        name: '涨停复盘明细',
+        name: '涨跌停复盘',
         icon: 'flame',
         implemented: true,
       },
@@ -55,17 +55,14 @@ export const navGroups: NavGroup[] = [
         id: 'sentiment',
         name: '情绪周期',
         icon: 'activity',
-        implemented: false,
+        implemented: true,
       },
       {
         path: '/market/intraday',
         id: 'intraday',
         name: '盘中研判',
         icon: 'target',
-        // The market endpoints exist, but the page itself still renders
-        // PlannedPage. Marking it implemented made the rail offer a route that
-        // only says "not built"; the public about page reads this same flag.
-        implemented: false,
+        implemented: true,
       },
     ],
   },

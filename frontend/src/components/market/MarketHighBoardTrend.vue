@@ -14,7 +14,7 @@ const emit = defineEmits<{
 }>()
 
 const focusDate = ref(props.selectedDate)
-const localWindow = ref<ReviewWindow>(60)
+const localWindow = ref<ReviewWindow>(120)
 
 watch(
   () => props.selectedDate,
@@ -50,8 +50,6 @@ watch(
   () => props.history,
   () => {
     if (!rows.value.length) return
-    const maximum = rows.value.length
-    localWindow.value = Math.min(localWindow.value, maximum)
     if (!rows.value.some((row) => row.date === focusDate.value)) {
       focusDate.value = rows.value.at(-1)?.date ?? props.selectedDate
     }
@@ -76,7 +74,8 @@ function selectWindow(window: ReviewWindow) {
     <header class="panel-head">
       <h2>每日最高连板</h2>
       <span class="sub">
-        {{ `图内查看 ${localWindow} 个交易日 · 点击折线点只看当日，不改变顶部观察日` }}
+        {{ `近 ${visibleRows.length} 个交易日` }}
+        <template v-if="rows.length > 0 && rows.length < 120"> · 历史不足120日</template>
       </span>
       <span class="grow" />
       <div class="windows" role="group" aria-label="图表区间">
@@ -84,11 +83,11 @@ function selectWindow(window: ReviewWindow) {
           v-for="item in windows"
           :key="item"
           type="button"
-          :class="{ active: item === localWindow }"
-          :aria-pressed="item === localWindow"
+          :class="{ active: item === Math.min(localWindow, rows.length) }"
+          :aria-pressed="item === Math.min(localWindow, rows.length)"
           @click="selectWindow(item)"
         >
-          {{ item === rows.length ? '全部' : `${item}日` }}
+          {{ item }}日
         </button>
       </div>
     </header>
@@ -114,17 +113,41 @@ function selectWindow(window: ReviewWindow) {
           · 最高 {{ focus.max_board ?? '—' }} 板
         </span>
         <span class="names">
-          {{ focus.max_board_stocks?.map((stock) => stock.name).join('、') || '最高板股票未知' }}
-          <template
-            v-if="(focus.max_board_stock_total ?? 0) > (focus.max_board_stocks?.length ?? 0)"
-          >
-            等 {{ focus.max_board_stock_total }} 只
+          <template v-if="focus.high_board_stocks?.length">
+            六板及以上：{{
+              focus.high_board_stocks
+                .map((stock) => `${stock.name}（${stock.boards}板）`)
+                .join('、')
+            }}
+          </template>
+          <template v-else>
+            {{ focus.max_board_stocks?.map((stock) => stock.name).join('、') || '最高板股票未知' }}
+            <template
+              v-if="(focus.max_board_stock_total ?? 0) > (focus.max_board_stocks?.length ?? 0)"
+            >
+              等 {{ focus.max_board_stock_total }} 只
+            </template>
           </template>
         </span>
         <button type="button" class="open" @click="emit('openDay', focus.date)">
           查看当日涨停列表 ›
         </button>
       </div>
+      <details v-if="visibleRows.length" class="daily-names">
+        <summary>逐日六板及以上股票 · 完整名单</summary>
+        <div v-for="row in visibleRows" :key="row.date" class="daily-row">
+          <button type="button" @click="selectDate(row.date)">{{ row.date }}</button>
+          <span v-if="row.high_board_stocks?.length" class="names">
+            {{
+              row.high_board_stocks.map((stock) => `${stock.name}（${stock.boards}板）`).join('、')
+            }}
+          </span>
+          <span v-else>{{
+            row.assessment === 'available' ? '无六板及以上股票' : '暂无已知六板及以上股票'
+          }}</span>
+          <button type="button" class="open" @click="emit('openDay', row.date)">查看当日 ›</button>
+        </div>
+      </details>
       <p class="note">
         <span class="peak-dot" />
         圆点标注为区间内局部高峰；缺失日期保持断点，不补值。
@@ -243,9 +266,42 @@ function selectWindow(window: ReviewWindow) {
 
 .names {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.daily-names {
+  margin-top: 12px;
+  color: var(--fg2);
+  font-size: 11px;
+}
+
+.daily-names summary {
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.daily-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.daily-row > button:first-child {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.daily-row .names {
+  flex: 1 1 240px;
+  line-height: 1.7;
 }
 
 .open {

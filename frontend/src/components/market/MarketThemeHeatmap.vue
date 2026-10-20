@@ -126,11 +126,7 @@ function moveCell(event: KeyboardEvent) {
         </table>
       </div>
       <div v-else class="empty">当前窗口没有可用题材记录。</div>
-      <p class="note">
-        · 表示 0 家，即已读取记录中未出现该题材；斜纹 —
-        表示该日涨停记录缺失。题材按最新日热度、区间总量排序，仅保留前 8
-        个并保留未知分组；存在缺失日时，合计以 ≥ 表示已知下限。
-      </p>
+      <p class="note">· 表示 0 家；斜纹 — 表示该日涨停记录缺失；合计 ≥ 表示已知下限。</p>
     </div>
   </section>
 </template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
+import { isBackgroundLocked, lockBackground } from '../../market/scroll-lock'
 import AppIcon from '../AppIcon'
 
 const props = defineProps<{
@@ -12,8 +13,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: [] }>()
 const panel = ref<HTMLElement | null>(null)
-let returnFocus: HTMLElement | null = null
-let previousBodyOverflow = ''
+let releaseBackground: (() => HTMLElement | null) | null = null
+let pendingReturnFocus: HTMLElement | null = null
 
 const focusableSelector = [
   'button:not([disabled])',
@@ -24,20 +25,15 @@ const focusableSelector = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 
-function lockBackground() {
-  returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-  previousBodyOverflow = document.body.style.overflow
-  document.body.style.overflow = 'hidden'
-  const app = document.getElementById('app')
-  app?.setAttribute('inert', '')
-  app?.setAttribute('aria-hidden', 'true')
-}
-
-function unlockBackground() {
-  document.body.style.overflow = previousBodyOverflow
-  const app = document.getElementById('app')
-  app?.removeAttribute('inert')
-  app?.removeAttribute('aria-hidden')
+async function unlockBackground() {
+  if (!releaseBackground) return
+  pendingReturnFocus ??= releaseBackground()
+  releaseBackground = null
+  await nextTick()
+  if (!isBackgroundLocked()) {
+    if (pendingReturnFocus?.isConnected) pendingReturnFocus.focus({ preventScroll: true })
+    pendingReturnFocus = null
+  }
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -76,18 +72,20 @@ function onKeydown(event: KeyboardEvent) {
 
 watch(
   () => props.open,
-  async (open) => {
+  async (open, _, onCleanup) => {
+    let cancelled = false
+    onCleanup(() => {
+      cancelled = true
+    })
     if (!open) {
-      unlockBackground()
-      await nextTick()
-      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
-      returnFocus = null
+      void unlockBackground()
       return
     }
-    lockBackground()
+    releaseBackground ??= lockBackground()
     await nextTick()
-    panel.value?.focus()
+    if (!cancelled) panel.value?.focus({ preventScroll: true })
   },
+  { immediate: true },
 )
 
 watch(
@@ -95,7 +93,7 @@ watch(
   async () => {
     if (!props.open) return
     await nextTick()
-    panel.value?.focus()
+    panel.value?.focus({ preventScroll: true })
   },
 )
 
@@ -106,7 +104,7 @@ defineExpose({
 document.addEventListener('keydown', onKeydown)
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)
-  if (props.open) unlockBackground()
+  void unlockBackground()
 })
 </script>
 

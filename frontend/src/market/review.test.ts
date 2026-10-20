@@ -87,7 +87,25 @@ describe('review presentation model', () => {
     ).toEqual(['C'])
     expect(
       groups.find((group) => group.key === 'height-1')?.rows.map((item) => item.symbol),
-    ).toEqual(['B', 'D'])
+    ).toEqual(['B'])
+    expect(ladder.broken.map((item) => item.symbol)).toEqual(['C', 'D'])
+  })
+
+  it('keeps unknown and connection breaks without treating unknown boards as a first-board break', () => {
+    const ladder = {
+      connection: [],
+      first: [],
+      unknown: [],
+      broken: [
+        { ...row('first-unknown', null), broken_kind: 'first' as const },
+        { ...row('connection-unknown', null), broken_kind: 'connection' as const },
+        row('unknown', null),
+      ],
+    } satisfies LadderRead
+    expect(buildLadderGroups(ladder)[0]?.rows.map((item) => item.symbol)).toEqual([
+      'connection-unknown',
+      'unknown',
+    ])
   })
 
   it('maps emotion scores to the prototype rating bands', () => {

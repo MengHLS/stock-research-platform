@@ -46,6 +46,7 @@ Agent 开始研究前先读首页并搜索主题目录；已有主题就更新�
 |---|---|---|
 | 应用库 app | 默认 `RP_DATABASE_URL` 指向本工程 SQLite；MySQL 使用 `RP_DATABASE_MYSQL__*` | 新系统业务数据，API/Worker/Alembic 共用；按运行/迁移职责最小授权 |
 | 研究源 source | `RP_SOURCE_MYSQL__*`，未配置即关闭 | 现有 MySQL/TiDB 的研究输入，必须使用数据库端专用 SELECT-only 账号；不绑定应用 ORM 或 Alembic |
+| 市场状态文件 market_state | `RP_MARKET_STATE__ROOT`，未配置即关闭 | 旧工程已验证的冻结日目录；只读校验 PASS 与 JSON 哈希，不查询数据库、不重算行情 |
 
 两套 MySQL 配置均含 HOST、PORT、DATABASE、USERNAME、PASSWORD、TLS、可选 CA_FILE、CONNECT_TIMEOUT 和 READ_TIMEOUT。PASSWORD 保持原值，由 URL.create 构造连接参数；无需手工拼接或 URL 转义。dotenv 中带 #、空格等字符的密码应加引号，容器环境变量则传原值。完整字段以 `.env.example` 和 Settings 为准。
 
@@ -59,15 +60,18 @@ Agent 开始研究前先读首页并搜索主题目录；已有主题就更新�
 uv run python tools/project.py db-config --target app
 uv run python tools/project.py db-config --target source
 uv run python tools/project.py db-check --target app
-# 仅在专用账号就绪且获准连接后，才执行 source 的 db-check：
+# 仅在专用账号就绪且获准连接后，先启动 SSH 隧道，再执行 source 的 db-check：
+# uv run python tools/project.py source-db       # 另一个终端保持运行
 # uv run python tools/project.py db-check --target source
 ```
 
+本地连开发服务器源库时，把 `RP_SOURCE_MYSQL__HOST/PORT` 设为本地转发地址（如 `127.0.0.1:13306`），设置 `RP_SOURCE_SSH_HOST` 与可选私钥；`source-db` 按该地址建隧道。服务器源库端口不要直接开放公网。
+
 db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 SELECT 1 连通检查，不建表、不扫描业务数据，也不证明只读授权、表结构或研究语义正确。源库权限由管理员核实实际授权及继承角色；不能通过尝试写生产表验证只读。TiDB 的普通 READ ONLY 事务声明并非可靠写保护，见[官方说明](https://docs.pingcap.com/tidbcloud/sql-statement-set-transaction/)。
 
-旧项目使用 DATABASE_URL、TUSHARE_TOKEN 及 MINIO_*，它们不自动继承；旧 Node mysql URL 的 ssl JSON 参数不能直接搬给 PyMySQL：旧工程用 `ssl={"rejectUnauthorized":false}`（加密但不校验证书），本工程对应应选 verify_ca 并固定其 CA，选 verify 会因主机名不匹配而失败。历史复盘只读 `index_daily`（交易日/四指数）、`limit_up_records`（涨停记录）、`stock_daily_prices`（梯队行情）和 `market_data`（成交额/两融，旧源亿元口径），不绑定应用 ORM、不迁移旧表。
+旧项目使用 DATABASE_URL、TUSHARE_TOKEN 及 MINIO_*，它们不自动继承；旧 Node mysql URL 的 ssl JSON 参数不能直接搬给 PyMySQL：旧工程用 `ssl={"rejectUnauthorized":false}`（加密但不校验证书），本工程对应应选 verify_ca 并固定其 CA，选 verify 会因主机名不匹配而失败。历史复盘只读 `index_daily`（交易日/四指数）、`limit_up_records`（涨停记录）、`stock_daily_prices`（梯队行情）和 `market_data`（成交额/两融，旧源亿元口径），不绑定应用 ORM、不迁移旧表；涨跌停日历家数另读同日冻结市场状态，缺失时相关数字保持空值。
 
-源库首次接入前需确认真实库位置与上述表范围、独立只读账号、TLS/CA、网络白名单和快照版本；只做授权的连通/结构检查。登录后总览页调用 `context`（默认日/前后日）、`dates`（区间≤366 日）、`overview`、`indices`、`limit-up` 与 `stock-series`（窗口≤120 交易日）；`RP_REVIEW__*` 控制缓存、窗口和连板回溯。源库未配时接口返回 `SOURCE_NOT_CONFIGURED`。覆盖 `available/completeness=presence_only` 只表示源中存在行；无涨停行、前一日缺口、连板链触顶或个股日线缺失时相关值为 null 并带稳定 issue，不填 0。坏数据 502 `MARKET_REVIEW_SOURCE_BAD_DATA`，SQL/表不可用 503 `MARKET_REVIEW_SOURCE_UNAVAILABLE`，非交易日 404。当前页面已用本地假数据完成视觉与交互检查；四张旧表的真实表结构、行数及日期极值已核实（逐表基线见[决策 D15](decisions.md#d15--历史复盘首版只读旧源并显式表达缺失)，各表日期范围不同且不保证区间完整），但只读权限（本机为临时豁免的全权账号）、数据完整性、性能与采集补数仍未验收。
+源库首次接入前需确认真实库位置与上述表范围、独立只读账号、TLS/CA、网络白名单和快照版本；只做授权的连通/结构检查。登录后总览页调用 `context`（默认日/前后日）、`dates`（区间≤366 日）、`overview`、`indices`、`limit-up` 与 `stock-series`（窗口≤120 交易日）；`RP_REVIEW__*` 控制缓存、窗口和连板回溯。源库未配时接口返回 `SOURCE_NOT_CONFIGURED`。覆盖 `available/completeness=presence_only` 只表示源中存在行；无涨停行、前一日缺口、连板链触顶或个股日线缺失时相关值为 null 并带稳定 issue，不填 0。认证/授权失败 503 `MARKET_REVIEW_SOURCE_AUTH_FAILED`（含表/列授权拒绝），坏数据 502 `MARKET_REVIEW_SOURCE_BAD_DATA`，其他 SQL/表不可用 503 `MARKET_REVIEW_SOURCE_UNAVAILABLE`，非交易日 404。当前页面已恢复读取源数据；四张旧表的真实表结构、行数及日期极值已核实（逐表基线见[决策 D15](decisions.md#d15--历史复盘首版只读旧源并显式表达缺失)，各表日期范围不同且不保证区间完整）。`research_ro` 的可见授权无写权限且四表可读，但数据库管理员未确认继承角色，数据完整性、性能与采集补数仍未验收。
 
 ## 公共行情数据源
 
@@ -76,13 +80,13 @@ db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 
 | 接口 | 来源 | 说明 |
 |---|---|---|
 | `GET /api/v1/market/quote` | 腾讯 | 实时快照：最新价/昨收/涨跌停/行情时间；覆盖沪深北与指数，盘前竞价时段也可读 |
-| `GET /api/v1/market/global/overview` | 新浪/雅虎/腾讯/Naver + 应用库 | 登录后读取跨市场概览，`window=20|60|120`；应用库优先，过期时刷新，失败回退最近快照并标记 `stale` |
+| `GET /api/v1/market/global/overview` | 新浪/东方财富/雅虎 + 腾讯/Naver/Yahoo Japan + 应用库 | 登录后读取跨市场概览，`window=20|60|120`；报价先取第一个完整批量源，日线并发刷新且受 8 秒默认同步预算约束；应用库优先，失败回退最近快照并标记 `stale` |
 | `GET /api/v1/market/intraday` | 腾讯 | `symbol`、`period=m1|m5|m15|m30|m60`、`limit<=800`；无北交所 |
 | `GET /api/v1/market/auction` | 东财曲线 + 新浪成交 | 09:15–09:25 虚拟撮合曲线来自东财（`push2`/`push2his` 多主机轮换）；09:25 实际成交优先东财，降级时来自新浪（沪深北/科创/ETF/指数全覆盖、股数精确）。全部失败时 `degraded=true`、`snapshots=[]`，前端必须显示降级状态 |
 | `GET /api/v1/market/daily` | Tushare | `symbol`、可选 `start`/`end`（YYYY-MM-DD） |
+| `GET /api/v1/market/state/description` | 冻结市场状态 | 登录后按 `date` 读取5日/20日/60日描述；未知日期404，源未配置503，哈希不符502 |
 | `GET /api/v1/market/sources` | 本服务 | 各源是否配置；不触发外网请求 |
 | `GET /api/v1/market/session` | 本服务 | 当前时段标签，按时钟判断，不代表交易日历 |
-
 标的写法：**规范形态为后缀式 `600519.SH` / `000001.SZ` / `920982.BJ`**，返回的 `symbol` 一律是该形态；入参同时接受 `600519`、`sh600519`、`sh.600519`、`SH600519`、`600519.sh` 等变体，统一折叠为规范形态。上证指数号段（`000001`/`000010`/`000016`/`000300`/`000688`/`000852`/`000905`）与深市股票同时使用 `000xxx`，深市指数 `399001`/`399106` 也需区分，这些**必须带交易所前缀**；裸代码一律 400 `MARKET_SYMBOL_INVALID`，不做猜测。北交所（`bj` 前缀）无腾讯分钟线，返回 `MARKET_DATA_UNAVAILABLE` 而不是空数组。日内K线与日线的成交量均换算为股（`volume_shares`）；腾讯快照因股票/ETF/指数口径不一致，字段为 `volume_lots` 并附 `volume_note`。时间对外为 UTC ISO 8601，另附 `trading_day` 交易日。
 
 失败码：`MARKET_SYMBOL_INVALID`(400)、`MARKET_DATA_UNAVAILABLE`(404)、`MARKET_SOURCE_UNAVAILABLE`(503)、`MARKET_SOURCE_BAD_RESPONSE`(502)、`MARKET_SOURCE_NOT_CONFIGURED`/`MARKET_SOURCE_DISABLED`(503)、`MARKET_SOURCE_PERMISSION_DENIED`(503)、`MARKET_SOURCE_RATE_LIMITED`(429)；复盘另有 400 区间码、404 日期码及 502/503 源码。供应商原始报文、连接串与 Tushare token 不写日志、不回前端。
@@ -141,7 +145,6 @@ uv run python tools/project.py identity --identity-action invite-revoke --code-i
 未实现：邮箱验证、密码重置邮件、多因素、SSO、审计查询界面。旧项目的 OAuth（Manus 平台）未沿用，其 `users` 表只存 openId，无法迁移密码。
 
 ## 前端原型（Open Design）
-
 前端设计原型在 Open Design 桌面应用维护，与本仓库同产品的早期 React 版本。已安装的 Open Design 提供本地 MCP，可读取原型和发起设计优化；默认使用 Open Design Cloud，切换 Local Codex 或 secure BYOK 需用户明确选择，生成失败时不得自动换模式。只读盘点仍可使用数据目录工具：
 
 ```sh
@@ -197,10 +200,7 @@ GitHub 配置：Secret `ECS_HOST`/`ECS_USER`/`ECS_SSH_KEY`；Variable `DEPLOY_PA
 Worker 临时连接失败首版最多连续重试 3 次（退避 1/2/4 秒，可被停止唤醒），恢复后清零；耗尽后非零退出，由运行环境按有界重启策略处理。任务的 attempts/租约重试与进程连库重试分别计数，不能把进程重启视为一次新研究。日志只留错误分类、重试次数与安全标识。
 
 未来长任务执行器必须支持停止信号、周期续租、产物临时区和原子发布；失去租约立即禁止发布/写入终态。只有确认旧执行已停止，才能主动释放租约供其他 Worker 接管；否则等待租约过期并由 token 阻止旧 Worker 交付。外部计算未停止时不能声称取消完成。
-
-Windows 使用受控进程组的协作退出方式并保留进程树强停兜底；Linux 向本次创建的进程组发停止信号，超时再强停。实现时记录所属 PID/进程组，不按名称广杀；父进程意外消失的清理由部署监督器或受控作业机制承担，不能只依赖 finally。
-
-验收分场景执行一次：正常启动/停止、端口占用、第二个进程启动失败、子进程意外退出、DB 不可用、API 在途请求、Worker 空闲/执行中停止及宽限期耗尽。检查无本次残留进程、退出码正确、资源释放、租约终态未被越权覆盖；不能靠强杀一次就宣称优雅退出完成。
+Windows 使用受控进程组的协作退出方式并保留进程树强停兜底；Linux 向本次创建的进程组发停止信号，超时再强停。实现时记录所属 PID/进程组，不按名称广杀；父进程意外消失的清理由部署监督器或受控作业机制承担，不能只依赖 finally。验收分场景执行一次：正常启动/停止、端口占用、第二个进程启动失败、子进程意外退出、DB 不可用、API 在途请求、Worker 空闲/执行中停止及宽限期耗尽。检查无本次残留进程、退出码正确、资源释放、租约终态未被越权覆盖；不能靠强杀一次就宣称优雅退出完成。
 
 ## 面向独立服务器的发布门槛
 

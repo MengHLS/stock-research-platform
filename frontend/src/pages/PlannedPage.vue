@@ -24,7 +24,7 @@ const detail = computed(
     <h2>{{ title }}</h2>
     <p>{{ detail }}</p>
     <p class="placeholder__note">
-      原型中已有设计稿；实现前需要对应的后端模块与接口。这里不显示示例数据，避免把未实现的能力当作可用。
+      该能力尚未实现，因此不显示示例数据，避免把规划中的功能当作可用。
     </p>
   </section>
 </template>

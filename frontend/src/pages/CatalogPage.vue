@@ -79,9 +79,9 @@ function describeFailure(value: ApiFailure): string {
 const emptyText = computed(() => {
   switch (state.value) {
     case 'auth':
-      return '服务端未配置认证（AUTH_NOT_CONFIGURED），无法判断目录是否为空'
+      return '登录服务尚未启用，暂时无法读取模式目录'
     case 'failed':
-      return '加载失败，未展示任何替代数据'
+      return '加载失败，未展示替代数据'
     case 'empty':
       return '暂无记录'
     default:
@@ -105,7 +105,7 @@ onUnmounted(() => controller?.abort())
   <section class="panel">
     <div class="panel__head">
       <div>
-        <span class="eyebrow">MODULE / CATALOG</span>
+        <span class="eyebrow">RESEARCH / CATALOG</span>
         <h2>模式库</h2>
       </div>
       <button type="button" class="btn" :disabled="loading" @click="load">
@@ -114,12 +114,10 @@ onUnmounted(() => controller?.abort())
       </button>
     </div>
 
-    <p class="lede">
-      服务端按登录用户过滤；不同账号只能看到各自的目录记录，越权 ID 与不存在 ID 一样返回 404。
-    </p>
+    <p class="lede">模式目录按账号隔离，只能看到本账号的记录。</p>
 
     <div v-if="state === 'auth'" class="banner banner--warn" role="status">
-      服务端未配置认证（<code>AUTH_NOT_CONFIGURED</code>），暂时无法读取私人目录。
+      登录服务尚未启用，暂时无法读取模式目录。
     </div>
     <div v-else-if="state === 'failed' && failure" class="banner banner--error" role="alert">
       <strong>{{ describeFailure(failure) }}</strong>
@@ -132,7 +130,7 @@ onUnmounted(() => controller?.abort())
       <p v-else>本次失败没有收到 request_id。</p>
     </div>
     <div v-else-if="state === 'empty'" class="banner banner--info" role="status">
-      请求成功，但当前账号范围内没有目录记录。
+      当前账号还没有目录记录。
     </div>
 
     <table class="table">

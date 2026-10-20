@@ -55,7 +55,7 @@ export const routes: RouteRecordRaw[] = [
     path: '/market/limit-up',
     name: 'market-limit-up',
     component: () => import('./pages/MarketLimitUpPage.vue'),
-    meta: { title: '涨停复盘明细', subtitle: '观察日、涨停日历、筛选与跨日记录' },
+    meta: { title: '涨跌停复盘', subtitle: '观察日、涨跌停日历、涨停与断板明细' },
   },
   {
     path: '/market/global',
@@ -63,12 +63,17 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('./pages/GlobalMarketsPage.vue'),
     meta: { title: '全球市场', subtitle: '跨市场指数、半导体与商品' },
   },
-  planned('/market/sentiment', '情绪周期', '等待情绪指标计算模块。'),
+  {
+    path: '/market/sentiment',
+    name: 'market-sentiment',
+    component: () => import('./pages/MarketSentimentPage.vue'),
+    meta: { title: '情绪周期', subtitle: '情绪评分、连板高度与龙头梯队' },
+  },
   {
     path: '/market/intraday',
     name: 'intraday',
-    component: PlannedPage,
-    meta: { title: '盘中研判', pending: '行情接口已就绪，页面待实现。' },
+    component: () => import('./pages/IntradayPage.vue'),
+    meta: { title: '盘中研判', subtitle: '自选、实时快照、开盘竞价与分钟行情' },
   },
 
   // 模式研究
@@ -78,16 +83,16 @@ export const routes: RouteRecordRaw[] = [
     component: CatalogPage,
     meta: { title: '模式库', subtitle: '私人模式目录' },
   },
-  planned('/research/discover', '挖掘流水线', '等待挖掘任务与候选策略模块。'),
-  planned('/research/strategies', '策略管理', '等待策略与版本模块。'),
-  planned('/research/screener', '选股', '等待选股与数据集模块。'),
-  planned('/research/backtest', '组合回测', '等待回测与指标模块。'),
-  planned('/research/compare', '回测对比', '等待回测结果模块。'),
-  planned('/research/continue', '策略续跑', '等待研究与运行溯源模块。'),
+  planned('/research/discover', '挖掘流水线', '尚在开发：挖掘任务与候选策略。'),
+  planned('/research/strategies', '策略管理', '尚在开发：策略与版本。'),
+  planned('/research/screener', '选股', '尚在开发：选股与数据集。'),
+  planned('/research/backtest', '组合回测', '尚在开发：回测与指标。'),
+  planned('/research/compare', '回测对比', '尚在开发：回测结果。'),
+  planned('/research/continue', '策略续跑', '尚在开发：研究与运行溯源。'),
 
   // 复盘与进化
-  planned('/review/desk', '复盘工作台', '等待复盘记录与结论模块。'),
-  planned('/review/journal', '决策日志', '等待私人决策记录模块。'),
+  planned('/review/desk', '复盘工作台', '尚在开发：复盘记录与结论。'),
+  planned('/review/journal', '决策日志', '尚在开发：私人决策记录。'),
 
   // 研究基础设施
   {
@@ -96,14 +101,14 @@ export const routes: RouteRecordRaw[] = [
     component: OverviewPage,
     meta: { title: '数据域健康', subtitle: '数据源与连通状态' },
   },
-  planned('/system/datasets', '数据集', '等待数据集定义、版本与构建模块。'),
-  planned('/system/stock-sync', '行情同步', '等待抓取与冻结快照模块。'),
-  planned('/system/experiments', '独立实验', '等待实验配置与运行模块。'),
-  planned('/system/candidates', '候选策略', '等待候选策略模块。'),
-  planned('/system/params', '参数搜索', '等待参数搜索模块。'),
-  planned('/system/validation', '验证总览', '等待验证与稳健性模块。'),
-  planned('/system/robustness', '稳健性 / OOS', '等待样本外验证模块。'),
-  planned('/system/paper', '前向纸面交易', '等待纸面交易模块。'),
+  planned('/system/datasets', '数据集', '尚在开发：数据集定义、版本与构建。'),
+  planned('/system/stock-sync', '行情同步', '尚在开发：抓取与冻结快照。'),
+  planned('/system/experiments', '独立实验', '尚在开发：实验配置与运行。'),
+  planned('/system/candidates', '候选策略', '尚在开发：候选策略。'),
+  planned('/system/params', '参数搜索', '尚在开发：参数搜索。'),
+  planned('/system/validation', '验证总览', '尚在开发：验证与稳健性。'),
+  planned('/system/robustness', '稳健性 / OOS', '尚在开发：样本外验证。'),
+  planned('/system/paper', '前向纸面交易', '尚在开发：纸面交易。'),
 
   { path: '/:pathMatch(.*)*', redirect: '/market/overview' },
 ]

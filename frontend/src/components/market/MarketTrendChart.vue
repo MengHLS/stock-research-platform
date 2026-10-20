@@ -15,11 +15,12 @@ import {
 const props = defineProps<{
   history: ReviewHistoryRow[]
   selectedDate: string
+  chartHeight?: number
 }>()
 const emit = defineEmits<{ select: [date: string] }>()
 
 const { chartHost, width, revealX, tooltipPosition } = useChartViewport(480, 760)
-const height = 360
+const height = props.chartHeight ?? 360
 const plotLeft = 46
 const plotRight = 20
 const plotTop = 38
@@ -272,6 +273,13 @@ function selectActive(index = activeIndex.value) {
       <span class="names">
         {{ tooltipRow.max_board_stocks?.map((stock) => stock.name).join('、') || '最高板股票未知' }}
       </span>
+      <span v-if="tooltipRow.high_board_stocks?.length" class="names">
+        六板及以上：{{
+          tooltipRow.high_board_stocks
+            .map((stock) => `${stock.name}（${stock.boards}板）`)
+            .join('、')
+        }}
+      </span>
     </div>
   </div>
 </template>
@@ -417,8 +425,7 @@ function selectActive(index = activeIndex.value) {
 .chart-tooltip .names {
   display: block;
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 </style>

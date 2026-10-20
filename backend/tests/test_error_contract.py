@@ -140,6 +140,7 @@ def test_business_errors_keep_real_status_and_matching_request_id(client_factory
         ("MARKET_REVIEW_RANGE_INVALID", 400),
         ("MARKET_REVIEW_DATE_UNAVAILABLE", 404),
         ("MARKET_REVIEW_SOURCE_UNAVAILABLE", 503),
+        ("MARKET_REVIEW_SOURCE_AUTH_FAILED", 503),
         ("MARKET_REVIEW_SOURCE_BAD_DATA", 502),
         ("DATABASE_UNAVAILABLE", 503),
     ],

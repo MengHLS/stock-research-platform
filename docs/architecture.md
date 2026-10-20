@@ -43,7 +43,7 @@ job 是基础设施工作项，不是研究 Run。当前诊断通过不代表策
 | identity | 会话、用户、权限 | 自建注册/登录；密码重置、SSO 待实现 |
 | catalog | 模式目录、定义与证据、关注 | 私人目录样板 |
 | execution | 作业调度与 Worker | 有界诊断样板 |
-| market / datasets | 行情与冻结数据集 | market 行情读取已实现；冻结数据集待实现 |
+| market / datasets | 行情、冻结数据集与市场状态描述 | market 行情读取与只读市场状态描述已实现；冻结数据集待实现 |
 | research / discovery | 实验配置、运行溯源、结果与评审；知识笔记外置 | 待实现 |
 | strategies / backtests | 版本化策略、撮合与规范指标 | 待适配，对拍后迁移 |
 | journal | 私人决策、偏差与笔记 | 待实现 |
@@ -188,11 +188,11 @@ Element Plus 管基础组件，样式 token 管全局主题。简单趋势、热
 | 能力 | 来源 | 接口 | 语义与限制 |
 |---|---|---|---|
 | 实时快照 | 腾讯 | `/api/v1/market/quote` | 最新价、昨收、涨跌停、行情时间；覆盖沪深北与指数 |
-| 全球市场概览 | 新浪报价 + 多源日线 + 应用库快照 | `/api/v1/market/global/overview` | 登录后读取纳指、道指、KOSPI、日经、半导体、创业板、科创50、黄金与原油；报价优先新浪并回退雅虎/东方财富，日线按标的采用雅虎、腾讯、新浪、Naver 或 Yahoo Japan；应用库优先，过期时刷新，外网失败回退最近快照并标记 `stale` |
+| 全球市场概览 | 新浪报价 + 多源日线 + 应用库快照 | `/api/v1/market/global/overview` | 登录后读取纳指、道指、KOSPI、日经、半导体、创业板、科创50、黄金与原油；报价先取新浪批量快照，失败时回退东方财富、最后雅虎；日线按标的采用新浪、腾讯、Naver 或 Yahoo Japan，并并发刷新、受总预算约束；应用库优先，外网失败回退最近快照并标记 `stale`，单标的旧快照单独标记 |
 | 日内K线 | 腾讯 | `/api/v1/market/intraday` | m1/m5/m15/m30/m60，单次最多约 800 根；无北交所覆盖；09:30 分钟线只含开盘集合竞价 |
 | 竞价 | 新浪撮合 + 东方财富曲线 + 腾讯分笔兜底 | `/api/v1/market/auction` | 09:15–09:25 虚拟撮合曲线（东财）+ 09:25 实际成交（新浪，股数精确，覆盖沪深北/科创/ETF/指数）；东财被反爬拒绝时降级为仅成交并标记 `degraded` |
 | 日线 | Tushare | `/api/v1/market/daily` | 需 token；用于对账与历史，不作为日内来源 |
-| 历史复盘 | 旧研究源（只读） | `/api/v1/market/review/context`、`dates`、`overview`、`indices`、`limit-up`、`stock-series` | 登录后读取共享历史；默认日/前后交易日、涨停梯队、当日明细、个股日 K/MA、统计序列与四指数；覆盖仅为行存在性 |
+| 历史复盘 | 旧研究源（只读）+ 冻结市场状态 | `/api/v1/market/review/context`、`dates`、`overview`、`indices`、`limit-up`、`stock-series` | 登录后读取共享历史；默认日/前后交易日、涨停梯队、当日明细、个股日 K/MA、统计序列与四指数；涨跌停日历家数取同日冻结市场状态，缺失保持 null；覆盖仅为行存在性 |
 | 源状态 | 本服务 | `/api/v1/market/sources` | 各源是否配置及支持能力 |
 
 模块 `modules/market/` 内 `symbols`（A 股标识归一）、`global_types`（跨市场标的与口径）、`global_source`（多源回退）、各 provider、`service`（选源与缓存）、`review`（历史口径与纯计算）、`legacy_review_source`（旧表只读适配）、`router`（HTTP）分层；provider 只依赖 `core`。北交所、涨跌停、停牌或“今日无成交”必须是显式错误码或 null，不得返回空数组冒充成功。

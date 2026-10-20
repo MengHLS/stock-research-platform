@@ -34,7 +34,7 @@ function row(
   }
 }
 
-function reviewDate(day: string, count: number): ReviewDate {
+function reviewDate(day: string, count: number, downCount: number | null = null): ReviewDate {
   return {
     date: day,
     limit_up: { status: 'available', row_count: count, completeness: 'presence_only' },
@@ -45,6 +45,13 @@ function reviewDate(day: string, count: number): ReviewDate {
       csi300: { status: 'available', row_count: 1, completeness: 'presence_only' },
       csi500: { status: 'available', row_count: 1, completeness: 'presence_only' },
     },
+    market_state_counts: {
+      status: 'available',
+      row_count: 1,
+      completeness: 'presence_only',
+    },
+    limit_up_close_count: count,
+    limit_down_close_count: downCount,
   }
 }
 
@@ -196,6 +203,9 @@ describe('limit-up presentation model', () => {
           csi300: { status: 'available', row_count: 1, completeness: 'presence_only' },
           csi500: { status: 'available', row_count: 1, completeness: 'presence_only' },
         },
+        market_state_counts: null,
+        limit_up_close_count: null,
+        limit_down_close_count: null,
       },
       {
         date: '2026-09-18',
@@ -207,6 +217,13 @@ describe('limit-up presentation model', () => {
           csi300: { status: 'available', row_count: 1, completeness: 'presence_only' },
           csi500: { status: 'available', row_count: 1, completeness: 'presence_only' },
         },
+        market_state_counts: {
+          status: 'available',
+          row_count: 1,
+          completeness: 'presence_only',
+        },
+        limit_up_close_count: 3,
+        limit_down_close_count: null,
       },
     ]
     const calendar = buildMonthCalendar('2026-09', dates)
@@ -233,6 +250,40 @@ describe('limit-up presentation model', () => {
       { date: '2026-09-01', count: 7 },
       { date: '2026-09-02', count: 4 },
     ])
+  })
+
+  it('shows verified limit-up and limit-down counts separately, including zero', () => {
+    const calendar = buildMonthCalendar('2026-09', [
+      {
+        ...reviewDate('2026-09-01', 4, 0),
+        limit_up: { status: 'available', row_count: 40, completeness: 'presence_only' },
+      },
+      reviewDate('2026-09-02', 2, 3),
+    ])
+    const first = calendar.cells.find((cell) => cell?.date === '2026-09-01')
+    const second = calendar.cells.find((cell) => cell?.date === '2026-09-02')
+
+    expect(first).toMatchObject({ count: 4, downCount: 0, available: true })
+    expect(second).toMatchObject({ count: 2, downCount: 3, available: true })
+    expect(calendar.total).toBe(6)
+    expect(calendar.downTotal).toBe(3)
+    expect(calendar.downKnownDays).toBe(2)
+  })
+
+  it('does not mix the old limit-up source when market-state counts are explicitly missing', () => {
+    const calendar = buildMonthCalendar('2026-09', [
+      {
+        ...reviewDate('2026-09-01', 4),
+        market_state_counts: null,
+        limit_up_close_count: null,
+        limit_down_close_count: null,
+      },
+    ])
+    const cell = calendar.cells.find((item) => item?.date === '2026-09-01')
+
+    expect(cell).toMatchObject({ count: null, downCount: null, available: false })
+    expect(calendar.total).toBe(0)
+    expect(calendar.downKnownDays).toBe(0)
   })
 
   it('shifts and clamps months by calendar bounds', () => {

@@ -68,6 +68,15 @@ const calendarModel = computed(() =>
     dates.value?.dates ?? [],
   ),
 )
+const reviewIssues = computed(() => {
+  const seen = new Set<string>()
+  return [...(dates.value?.issues ?? []), ...(detail.value?.issues ?? [])].filter((issue) => {
+    const key = `${issue.code}|${issue.scope}|${issue.message}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+})
 const minimumMonth = computed(() => context.value?.calendar_start?.slice(0, 7) ?? '')
 const maximumMonth = computed(() => context.value?.calendar_end?.slice(0, 7) ?? '')
 const previousMonth = computed(() => {
@@ -89,7 +98,7 @@ const noteKey = computed(() =>
 )
 
 function failureText(failure: ApiFailure): string {
-  if (isAuthNotConfigured(failure)) return '服务端尚未配置认证，无法读取历史复盘数据。'
+  if (isAuthNotConfigured(failure)) return '登录服务尚未启用，无法读取历史复盘数据。'
   if (failure.kind === 'network') return '无法连接后台服务，请确认 API 已启动或检查网络。'
   return failure.message
 }
@@ -300,7 +309,7 @@ onBeforeUnmount(() => {
       </button>
     </section>
     <section v-else-if="context && !context.default_date" class="banner banner--info">
-      源内暂无可用的历史复盘日期。
+      暂无可用的历史复盘日期。
     </section>
 
     <div v-if="showInitialLoading" class="loading-panel">
@@ -309,7 +318,7 @@ onBeforeUnmount(() => {
         <i />
         <i />
       </div>
-      <span>正在读取 {{ selectedDate || '最近交易日' }} 的涨停复盘明细…</span>
+      <span>正在读取 {{ selectedDate || '最近交易日' }} 的涨跌停复盘数据…</span>
     </div>
 
     <template
@@ -355,16 +364,17 @@ onBeforeUnmount(() => {
         @reset-date="resetToLatest"
       />
 
-      <details v-if="detail?.issues.length" class="issues">
+      <details v-if="reviewIssues.length" class="issues">
         <summary>
           <AppIcon name="alert-triangle" :size="14" />
-          {{ detail.issues.length }} 条数据口径与缺失提示
+          {{ reviewIssues.length }} 条数据口径与缺失提示
         </summary>
         <ul>
-          <li v-for="issue in detail.issues" :key="`${issue.code}-${issue.scope}`">
-            <code>{{ issue.code }}</code>
-            <span>{{ issue.message }}</span>
-            <em>{{ issue.scope }}</em>
+          <li v-for="issue in reviewIssues" :key="`${issue.code}-${issue.scope}-${issue.message}`">
+            <span v-if="/^\d{4}-\d{2}-\d{2}$/.test(issue.scope ?? '')">
+              涉及日期 {{ issue.scope }} ·
+            </span>
+            {{ issue.message }}
           </li>
         </ul>
       </details>
@@ -373,7 +383,7 @@ onBeforeUnmount(() => {
     <ReviewDrawer
       ref="drawer"
       :open="selectedRow !== null"
-      :title="selectedRow?.name ?? '涨停记录'"
+      :title="selectedRow?.name ?? '复盘记录'"
       :meta="
         selectedRow ? `${selectedRow.symbol} · ${selectedRow.sector} · ${selectedRow.date}` : ''
       "
@@ -519,31 +529,13 @@ onBeforeUnmount(() => {
 }
 
 .issues li {
-  display: grid;
-  grid-template-columns: minmax(140px, auto) minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.issues code,
-.issues em {
   color: var(--fg2);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.issues span {
-  color: var(--muted);
+  line-height: 1.55;
 }
 
 @media (max-width: 760px) {
   .limit-page {
     gap: 13px;
-  }
-
-  .issues li {
-    grid-template-columns: 1fr;
-    gap: 2px;
   }
 }
 

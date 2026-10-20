@@ -53,7 +53,7 @@ const filterOptions = computed(() => [
 ])
 
 function failureText(value: ApiFailure): string {
-  if (isAuthNotConfigured(value)) return '服务端尚未配置认证，无法读取全球市场数据。'
+  if (isAuthNotConfigured(value)) return '登录服务尚未启用，无法读取全球市场数据。'
   if (value.kind === 'network') return '无法连接后台服务，请确认 API 已启动或检查网络。'
   return value.message
 }
@@ -185,7 +185,7 @@ onBeforeUnmount(() => {
       <button type="button" class="banner-button" @click="reloadKey += 1">重试</button>
     </section>
     <section v-else-if="overview?.stale" class="banner banner--warn" role="status">
-      <strong>外网刷新失败，当前显示最近成功同步的本地快照。</strong>
+      <strong>外网刷新失败，当前显示最近成功同步的数据。</strong>
       <span>{{ formatMarketTime(overview.last_synced_at) }}</span>
       <button type="button" class="banner-button" @click="reloadKey += 1">重试更新</button>
     </section>

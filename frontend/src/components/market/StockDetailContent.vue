@@ -34,7 +34,7 @@ const sameSector = computed(() => {
   )
 })
 function failureText(failure: ApiFailure): string {
-  if (isAuthNotConfigured(failure)) return '服务端尚未配置认证，无法读取历史复盘数据。'
+  if (isAuthNotConfigured(failure)) return '登录服务尚未启用，无法读取历史复盘数据。'
   if (failure.kind === 'network') return '无法连接后台服务，请确认 API 已启动或检查网络。'
   return failure.message
 }

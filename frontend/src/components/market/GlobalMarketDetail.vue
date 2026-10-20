@@ -55,11 +55,9 @@ const hasBars = computed(() => bars.value.length > 0)
     <div v-if="hasBars" class="chart-scroll">
       <MarketIndexKline :bars="bars" :selected-date="selectedDate" :show-volume="false" />
     </div>
-    <div v-else class="empty">该标的暂无日 K 数据，不用推算值代替。</div>
+    <div v-else class="empty">该标的暂无日 K 数据。</div>
 
-    <p class="note">
-      日 K 来自供应商原始日线，不复权、不补缺失日；MA5/MA20 在历史样本不足时保持空值。
-    </p>
+    <p class="note">日 K 为原始价格，不复权、不补缺失日；MA5/MA20 在样本不足时留空。</p>
   </div>
 </template>
 

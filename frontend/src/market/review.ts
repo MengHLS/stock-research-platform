@@ -191,7 +191,8 @@ export function previousHistory(
 
 export function buildLadderGroups(ladder: LadderRead): LadderGroup[] {
   const byHeight = new Map<number, LadderRow[]>()
-  for (const row of [...ladder.connection, ...ladder.first, ...ladder.broken]) {
+  const broken = ladder.broken.filter((row) => row.broken_kind !== 'first')
+  for (const row of [...ladder.connection, ...ladder.first, ...broken]) {
     if (row.boards === null) continue
     const rows = byHeight.get(row.boards) ?? []
     rows.push(row)
@@ -204,7 +205,7 @@ export function buildLadderGroups(ladder: LadderRead): LadderGroup[] {
       label: height === 1 ? '首板' : `${height} 板`,
       rows,
     }))
-  const unknown = [...ladder.unknown, ...ladder.broken.filter((row) => row.boards === null)]
+  const unknown = [...ladder.unknown, ...broken.filter((row) => row.boards === null)]
   if (unknown.length) {
     groups.push({
       key: 'unknown',

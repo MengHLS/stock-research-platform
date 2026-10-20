@@ -395,6 +395,16 @@ class LegacyMarketReviewSource:
             )
             raise DomainError("MARKET_REVIEW_SOURCE_BAD_DATA") from None
         except SQLAlchemyError as error:
+            if _is_auth_failure(error):
+                log_event(
+                    "market.review_source_failed",
+                    level=logging.ERROR,
+                    source="legacy",
+                    operation=operation_name,
+                    reason="auth_failed",
+                    error_type=type(error).__name__,
+                )
+                raise DomainError("MARKET_REVIEW_SOURCE_AUTH_FAILED") from None
             log_event(
                 "market.review_source_failed",
                 level=logging.ERROR,
@@ -404,6 +414,19 @@ class LegacyMarketReviewSource:
                 error_type=type(error).__name__,
             )
             raise DomainError("MARKET_REVIEW_SOURCE_UNAVAILABLE") from None
+
+
+def _is_auth_failure(error: SQLAlchemyError) -> bool:
+    """Recognize MySQL access-denied errors without inspecting sensitive text."""
+    original = getattr(error, "orig", None)
+    args = getattr(original, "args", ())
+    server_code = args[0] if args and isinstance(args[0], int) else None
+    return getattr(original, "sqlstate", None) == "28000" or server_code in {
+        1044,
+        1045,
+        1142,
+        1143,
+    }
 
 
 def _date(value: object) -> date:

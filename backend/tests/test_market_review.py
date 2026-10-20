@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 
 from research_platform.core.config import ReviewConfig, Settings
 from research_platform.core.errors import DomainError
@@ -23,6 +25,7 @@ from research_platform.modules.market.review import (
     StockBar,
     StockQuote,
 )
+from research_platform.modules.market.state_description import MarketStateLimitCounts
 
 
 def record(
@@ -185,8 +188,74 @@ class FakeReviewSource:
         return rows
 
 
-def service(source: FakeReviewSource | None = None, **config) -> MarketReviewService:
-    return MarketReviewService(source or FakeReviewSource(), ReviewConfig(**config))
+class FakeMarketStateCountSource:
+    def __init__(
+        self,
+        rows: list[MarketStateLimitCounts] | None = None,
+        *,
+        error_code: str | None = None,
+    ) -> None:
+        self.error_code = error_code
+        self.rows = (
+            rows
+            if rows is not None
+            else [
+                MarketStateLimitCounts(
+                    trading_day=date(2026, 9, 15),
+                    limit_up_close_count=0,
+                    limit_down_close_count=2,
+                    broken_board_count=1,
+                    broken_board_rate_pct=Decimal("100"),
+                    coverage_status="VERIFIED_UNIVERSE",
+                ),
+                MarketStateLimitCounts(
+                    trading_day=date(2026, 9, 16),
+                    limit_up_close_count=1,
+                    limit_down_close_count=0,
+                    broken_board_count=0,
+                    broken_board_rate_pct=Decimal("0"),
+                    coverage_status="VERIFIED_UNIVERSE",
+                ),
+                MarketStateLimitCounts(
+                    trading_day=date(2026, 9, 17),
+                    limit_up_close_count=4,
+                    limit_down_close_count=3,
+                    broken_board_count=2,
+                    broken_board_rate_pct=Decimal("33.33333333333333333333333333"),
+                    coverage_status="VERIFIED_UNIVERSE",
+                ),
+                MarketStateLimitCounts(
+                    trading_day=date(2026, 9, 18),
+                    limit_up_close_count=3,
+                    limit_down_close_count=5,
+                    broken_board_count=2,
+                    broken_board_rate_pct=Decimal("40"),
+                    coverage_status="VERIFIED_UNIVERSE",
+                ),
+            ]
+        )
+
+    def limit_counts(
+        self,
+        start: date,
+        end: date,
+    ) -> dict[date, MarketStateLimitCounts]:
+        if self.error_code is not None:
+            raise DomainError(self.error_code)
+        return {row.trading_day: row for row in self.rows if start <= row.trading_day <= end}
+
+
+def service(
+    source: FakeReviewSource | None = None,
+    *,
+    market_state_counts: FakeMarketStateCountSource | None = None,
+    **config,
+) -> MarketReviewService:
+    return MarketReviewService(
+        source or FakeReviewSource(),
+        ReviewConfig(**config),
+        market_state_counts=market_state_counts or FakeMarketStateCountSource(),
+    )
 
 
 def test_overview_matches_legacy_board_roster_fixture():
@@ -231,6 +300,54 @@ def test_history_rows_are_bounded_and_use_only_data_at_or_before_each_day():
     assert overview.history[1].max_board_stocks[0].symbol == "000001.SZ"
     assert overview.window_requested == 2
     assert overview.window_actual == 2
+
+
+def test_overview_returns_120_trading_days_and_reports_short_history():
+    source = FakeReviewSource()
+    source.days = [
+        date(2026, 1, 1) + timedelta(days=offset)
+        for offset in range(200)
+        if (date(2026, 1, 1) + timedelta(days=offset)).weekday() < 5
+    ]
+    review = service(source)
+    result = review.overview(source.days[-1], 120)
+    assert result.window_requested == result.window_actual == len(result.history) == 120
+    assert [row.date for row in result.history] == source.days[-120:]
+    assert all(row.turnover_100m_cny == Decimal("12000.50") for row in result.history)
+    short = review.overview(source.days[9], 120)
+    assert short.window_requested == 120
+    assert short.window_actual == len(short.history) == 10
+
+
+def test_history_includes_all_known_six_plus_stocks_even_below_maximum():
+    days = [date(2026, 8, 3) + timedelta(days=offset) for offset in range(10)]
+    records = [record("600000.SH", day.isoformat()) for day in days]
+    # One seven-board leader, fifteen six-board stocks, and a five-board stock.
+    for number, start in [(1, 3), *[(number, 4) for number in range(2, 17)], (17, 5)]:
+        records.extend(
+            record(f"{number:06d}.SZ", day.isoformat(), name=f"完整名称{number}")
+            for day in days[start:]
+        )
+    source = FakeReviewSource(records)
+    source.days = days
+    history = service(source).overview(days[-1], 2).history
+    latest = history[-1]
+    # The chain touching the calendar boundary stays unknown; known names still survive.
+    assert latest.max_board is None
+    assert [(stock.name, stock.boards) for stock in latest.high_board_stocks] == [
+        ("完整名称1", 7),
+        *[(f"完整名称{number}", 6) for number in range(2, 17)],
+    ]
+    assert [(stock.name, stock.boards) for stock in history[0].high_board_stocks] == [
+        ("完整名称1", 6)
+    ]
+    source.records = [row for row in records if row.symbol != "600000.SH"] + [
+        record("600001.SH", day.isoformat()) for day in days[:4]
+    ]
+    latest = service(source).overview(days[-1], 1).history[0]
+    assert latest.max_board == 7
+    assert len(latest.high_board_stocks) == 16
+    assert latest.max_board_stock_total == len(latest.max_board_stocks) == 1
 
 
 def test_limit_up_detail_returns_current_and_broken_rows_across_window():
@@ -473,6 +590,76 @@ def test_dates_report_each_presence_only_coverage():
     assert result.dates[0].limit_up.status == "available"
     assert result.dates[1].indices.csi300.status == "available"
     assert result.dates[0].limit_up.completeness == "presence_only"
+    assert result.dates[0].limit_up_close_count == 0
+    assert result.dates[0].limit_down_close_count == 2
+    assert result.dates[1].limit_down_close_count == 0
+    assert result.dates[-1].limit_up_close_count == 3
+    assert result.dates[-1].limit_down_close_count == 5
+    assert result.dates[-1].market_state_counts is not None
+
+
+def test_dates_keep_missing_market_state_counts_null_and_emit_an_issue():
+    result = service(market_state_counts=FakeMarketStateCountSource([])).dates(
+        date(2026, 9, 15),
+        date(2026, 9, 18),
+    )
+
+    assert all(row.market_state_counts is None for row in result.dates)
+    assert all(row.limit_up_close_count is None for row in result.dates)
+    assert all(row.limit_down_close_count is None for row in result.dates)
+    assert "market_state_counts_unavailable" in {issue.code for issue in result.issues}
+
+
+def test_dates_report_partial_market_state_coverage():
+    only_first = [
+        replace(
+            FakeMarketStateCountSource().rows[0],
+            coverage_status="EXPLORATORY",
+        )
+    ]
+    result = service(market_state_counts=FakeMarketStateCountSource(only_first)).dates(
+        date(2026, 9, 15),
+        date(2026, 9, 18),
+    )
+
+    assert result.dates[0].market_state_counts is not None
+    assert result.dates[-1].market_state_counts is None
+    assert {issue.code for issue in result.issues} >= {
+        "market_state_counts_unavailable",
+        "market_state_counts_unverified",
+    }
+
+
+@pytest.mark.parametrize(
+    ("error_code", "issue_code"),
+    [
+        ("SOURCE_NOT_CONFIGURED", "market_state_counts_not_configured"),
+        ("MARKET_STATE_SOURCE_UNAVAILABLE", "market_state_counts_source_unavailable"),
+        ("MARKET_STATE_SOURCE_BAD_DATA", "market_state_counts_source_bad_data"),
+    ],
+)
+def test_dates_distinguish_market_state_failure_reasons(error_code, issue_code):
+    result = service(market_state_counts=FakeMarketStateCountSource(error_code=error_code)).dates(
+        date(2026, 9, 15),
+        date(2026, 9, 18),
+    )
+
+    assert all(row.market_state_counts is None for row in result.dates)
+    assert issue_code in {issue.code for issue in result.issues}
+
+
+def test_dates_report_an_unconfigured_market_state_dependency():
+    result = MarketReviewService(
+        FakeReviewSource(),
+        ReviewConfig(),
+        market_state_counts=None,
+    ).dates(
+        date(2026, 9, 15),
+        date(2026, 9, 18),
+    )
+
+    assert all(row.market_state_counts is None for row in result.dates)
+    assert "market_state_counts_not_configured" in {issue.code for issue in result.issues}
 
 
 def test_context_defaults_to_latest_limit_up_day_and_returns_neighbours():
@@ -676,11 +863,44 @@ def test_legacy_source_schema_failure_maps_to_unavailable():
     engine.dispose()
 
 
+@pytest.mark.parametrize(
+    ("server_code", "sqlstate", "expected_code"),
+    [
+        (1045, None, "MARKET_REVIEW_SOURCE_AUTH_FAILED"),
+        (1044, "42000", "MARKET_REVIEW_SOURCE_AUTH_FAILED"),
+        (1142, "42000", "MARKET_REVIEW_SOURCE_AUTH_FAILED"),
+        (1143, "42000", "MARKET_REVIEW_SOURCE_AUTH_FAILED"),
+        (9999, "28000", "MARKET_REVIEW_SOURCE_AUTH_FAILED"),
+        (1146, None, "MARKET_REVIEW_SOURCE_UNAVAILABLE"),
+    ],
+)
+def test_legacy_source_error_classification(server_code, sqlstate, expected_code):
+    class DatabaseAuthError(Exception):
+        pass
+
+    DatabaseAuthError.args = (server_code, "database error")
+    if sqlstate is not None:
+        DatabaseAuthError.sqlstate = sqlstate
+
+    engine = MagicMock()
+    engine.connect.side_effect = OperationalError("SELECT 1", {}, DatabaseAuthError())
+    source = LegacyMarketReviewSource(engine)
+
+    with pytest.raises(DomainError) as failure:
+        source.trading_days(date(2026, 9, 18), date(2026, 9, 18))
+
+    assert failure.value.code == expected_code
+
+
 def _review_client(database_url, source: FakeReviewSource, user_id: int = 1):
     settings = Settings(environment="test", database_url=database_url, _env_file=None)
     app = create_app(settings)
     app.dependency_overrides[require_actor] = lambda: Actor(user_id=user_id)
-    app.state.market_review = MarketReviewService(source, settings.review)
+    app.state.market_review = MarketReviewService(
+        source,
+        settings.review,
+        market_state_counts=FakeMarketStateCountSource(),
+    )
     return TestClient(app)
 
 
@@ -758,6 +978,9 @@ def test_review_api_dates_and_indices_contract(database_url):
         )
     assert dates.status_code == 200
     assert dates.json()["dates"][-1]["limit_up"]["completeness"] == "presence_only"
+    assert dates.json()["dates"][-1]["market_state_counts"]["status"] == "available"
+    assert dates.json()["dates"][-1]["limit_up_close_count"] == 3
+    assert dates.json()["dates"][-1]["limit_down_close_count"] == 5
     assert indices.status_code == 200
     assert context.status_code == 200
     assert context.json()["default_date"] == "2026-09-18"

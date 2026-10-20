@@ -5,10 +5,14 @@ import json
 import os
 import re
 import shutil
+import signal
+import socket
 import struct
 import subprocess
 import sys
+import time
 import zlib
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +21,9 @@ DOCS = {
     "README.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
+    "TODO.md",
+    "TASKS.md",
+    "TASKS_DONE.md",
     "docs/architecture.md",
     "docs/decisions.md",
     "docs/runbook.md",
@@ -109,13 +116,250 @@ def migrate() -> None:
     run("alembic", "-c", "backend/alembic.ini", "upgrade", "head")
 
 
+def check_dev_ports(ports: tuple[int, ...] = (8000, 5173)) -> None:
+    """Fail before starting children; leave an existing service untouched."""
+    for port in ports:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            if os.name == "nt":
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                raise SystemExit(
+                    f"Development port {port} is unavailable; existing services were not stopped."
+                ) from None
+
+
+class WindowsProcessJob:
+    """Own a Windows job that also claims descendants created after startup."""
+
+    def __init__(self) -> None:
+        self._handle = None
+        self._close_handle = None
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class IoCounters(ctypes.Structure):
+                _fields_ = [
+                    ("ReadOperationCount", ctypes.c_ulonglong),
+                    ("WriteOperationCount", ctypes.c_ulonglong),
+                    ("OtherOperationCount", ctypes.c_ulonglong),
+                    ("ReadTransferCount", ctypes.c_ulonglong),
+                    ("WriteTransferCount", ctypes.c_ulonglong),
+                    ("OtherTransferCount", ctypes.c_ulonglong),
+                ]
+
+            class BasicLimits(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_longlong),
+                    ("PerJobUserTimeLimit", ctypes.c_longlong),
+                    ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD),
+                ]
+
+            class ExtendedLimits(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", BasicLimits),
+                    ("IoInfo", IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t),
+                ]
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+            kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+            kernel32.SetInformationJobObject.argtypes = [
+                wintypes.HANDLE,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                wintypes.DWORD,
+            ]
+            kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+            kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            handle = kernel32.CreateJobObjectW(None, None)
+            if not handle:
+                return
+            # Closing the last job handle terminates every process still assigned.
+            limits = ExtendedLimits()
+            limits.BasicLimitInformation.LimitFlags = 0x00002000
+            if not kernel32.SetInformationJobObject(
+                handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)
+            ):
+                kernel32.CloseHandle(handle)
+                return
+            self._handle = handle
+            self._kernel32 = kernel32
+            self._wintypes = wintypes
+            self._close_handle = kernel32.CloseHandle
+        except (AttributeError, OSError):
+            self._handle = None
+
+    def assign(self, process: subprocess.Popen) -> bool:
+        if self._handle is None:
+            return False
+        return bool(
+            self._kernel32.AssignProcessToJobObject(
+                self._handle, self._wintypes.HANDLE(int(process._handle))
+            )
+        )
+
+    def terminate(self) -> bool:
+        if self._handle is None:
+            return True
+        return bool(self._kernel32.TerminateJobObject(self._handle, 1))
+
+    def close(self) -> None:
+        if self._handle is not None and self._close_handle is not None:
+            self._close_handle(self._handle)
+        self._handle = None
+
+
+_WINDOWS_DEV_GATE = """\
+import json
+import subprocess
+import sys
+
+command = json.loads(sys.argv[1])
+if sys.stdin.readline() != "start\\n":
+    raise SystemExit(1)
+try:
+    target_stdin = open("CONIN$", "rb", buffering=0)
+except OSError:
+    target_stdin = None
+raise SystemExit(subprocess.call(command, stdin=target_stdin))
+"""
+
+
+def _start_dev_child(
+    command: list[str],
+    *,
+    cwd: Path,
+    group_options: dict[str, object],
+) -> subprocess.Popen:
+    if os.name != "nt":
+        return subprocess.Popen(command, cwd=cwd, **group_options)
+    # Wait for the parent to assign this gate to the job before spawning descendants.
+    return subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            _WINDOWS_DEV_GATE,
+            json.dumps(command, ensure_ascii=False),
+        ],
+        cwd=cwd,
+        stdin=subprocess.PIPE,
+        text=True,
+        **group_options,
+    )
+
+
+def _open_dev_child_gate(process: subprocess.Popen) -> None:
+    if os.name != "nt":
+        return
+    if process.stdin is None:
+        raise OSError("development child start gate is unavailable")
+    process.stdin.write("start\n")
+    process.stdin.flush()
+    process.stdin.close()
+
+
+def _posix_process_group_exists(process_group: int) -> bool:
+    try:
+        os.killpg(process_group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_posix_process_group(process: subprocess.Popen, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        if process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            try:
+                process.wait(timeout=min(remaining, 0.1))
+            except subprocess.TimeoutExpired:
+                pass
+        if not _posix_process_group_exists(process.pid):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def stop_dev_process(process: subprocess.Popen) -> bool:
+    """Stop only the group created by this invocation, with a bounded fallback."""
+    if os.name == "nt":
+        if process.poll() is not None:
+            return True
+        try:
+            # A dead leader is not signalled because its PID may have been reused.
+            # The owning Windows job reclaims descendants after this helper returns.
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+            process.wait(timeout=10)
+            return True
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+            )
+            if process.poll() is None:
+                process.wait(timeout=5)
+            return process.poll() is not None
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        pass
+    else:
+        if _wait_for_posix_process_group(process, 10):
+            return True
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return _wait_for_posix_process_group(process, 5)
+
+
 def dev() -> None:
     SCRATCH.mkdir(exist_ok=True)
     pnpm = shutil.which("pnpm")
     if not pnpm:
         raise SystemExit("pnpm is required; install the packageManager version from package.json")
-    processes = [
-        subprocess.Popen(
+    check_dev_ports()
+    processes = []
+    job = WindowsProcessJob() if os.name == "nt" else None
+    group_options = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if os.name == "nt"
+        else {"start_new_session": True}
+    )
+    failure: BaseException | None = None
+    try:
+        api = _start_dev_child(
             [
                 sys.executable,
                 "-m",
@@ -129,11 +373,28 @@ def dev() -> None:
                 "8000",
             ],
             cwd=ROOT,
-        ),
-        subprocess.Popen([pnpm, "dev"], cwd=ROOT / "frontend"),
-    ]
-    try:
-        while all(p.poll() is None for p in processes):
+            group_options=group_options,
+        )
+        processes.append(api)
+        if job is not None and not job.assign(api):
+            raise SystemExit("Cannot establish an owned process job for the API.")
+        _open_dev_child_gate(api)
+        web = _start_dev_child(
+            [pnpm, "dev", "--port", "5173", "--strictPort"],
+            cwd=ROOT / "frontend",
+            group_options=group_options,
+        )
+        processes.append(web)
+        if job is not None and not job.assign(web):
+            raise SystemExit("Cannot establish an owned process job for the web server.")
+        _open_dev_child_gate(web)
+        print("Development API: http://127.0.0.1:8000; Web: http://127.0.0.1:5173", flush=True)
+        while True:
+            for name, process in zip(("API", "Web"), processes, strict=True):
+                code = process.poll()
+                if code is not None:
+                    print(f"{name} exited unexpectedly (status {code}).", file=sys.stderr)
+                    raise SystemExit(code if code > 0 else 1)
             for process in processes:
                 try:
                     process.wait(timeout=0.4)
@@ -141,18 +402,62 @@ def dev() -> None:
                     pass
     except KeyboardInterrupt:
         pass
+    except BaseException as error:
+        failure = error
     finally:
-        for process in processes:
-            if process.poll() is None:
-                if os.name == "nt":
-                    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], check=False)
-                else:
-                    process.terminate()
+        cleanup_failed = False
         for process in processes:
             try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
+                cleanup_failed = not stop_dev_process(process) or cleanup_failed
+            except (OSError, subprocess.TimeoutExpired):
+                cleanup_failed = True
+        if job is not None:
+            cleanup_failed = not job.terminate() or cleanup_failed
+            job.close()
+        if cleanup_failed:
+            print("An owned development process could not be stopped.", file=sys.stderr)
+    if cleanup_failed:
+        raise SystemExit(1)
+    if failure is not None:
+        raise failure
+
+
+def source_database_tunnel(settings=None) -> None:
+    """Forward the local configured source-DB address to the deployment host."""
+    import ipaddress
+
+    if settings is None:
+        from research_platform.core.config import Settings
+
+        settings = Settings()
+    source = settings.source_mysql
+    if source is None:
+        raise SystemExit("Source database is not configured")
+    try:
+        loopback = ipaddress.ip_address(source.host).is_loopback
+    except ValueError:
+        loopback = False
+    if not loopback:
+        raise SystemExit("RP_SOURCE_MYSQL__HOST must be a loopback address for source-db")
+    host = settings.source_ssh_host
+    if not host:
+        raise SystemExit("Set RP_SOURCE_SSH_HOST to the deployment host")
+    identity = settings.source_ssh_identity
+    if identity:
+        identity_file = identity.expanduser()
+        if not identity_file.is_file():
+            raise SystemExit("RP_SOURCE_SSH_IDENTITY does not name a readable file")
+    options = ["-N", "-o", "ExitOnForwardFailure=yes"]
+    if identity:
+        options.extend(["-i", str(identity_file)])
+    options.extend(
+        [
+            "-L",
+            f"{source.host}:{source.port}:127.0.0.1:{source.port}",
+            f"root@{host}" if "@" not in host else host,
+        ]
+    )
+    subprocess.run(["ssh", *options], check=True)
 
 
 def database_config(target: str, connect: bool) -> None:
@@ -691,6 +996,54 @@ def market_check() -> None:
     print(json.dumps(summary, ensure_ascii=False), flush=True)
 
 
+def market_state_description(
+    action: str,
+    *,
+    trade_date: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    output: str | None = None,
+) -> None:
+    """Describe or scan the configured frozen market-state delivery."""
+    from research_platform.core.config import Settings
+    from research_platform.core.errors import DomainError
+    from research_platform.modules.market.state_description import (
+        MarketStateDescriptionService,
+    )
+    from research_platform.modules.market.state_source import FrozenMarketStateSource
+
+    settings = Settings()
+    if settings.market_state is None:
+        raise SystemExit("RP_MARKET_STATE__ROOT is not configured")
+    config = settings.market_state
+    service = MarketStateDescriptionService(FrozenMarketStateSource(config.root), config)
+    try:
+        if action == "describe":
+            payload = service.describe(
+                date.fromisoformat(trade_date) if trade_date else None
+            ).model_dump(mode="json")
+        elif action == "scan":
+            payload = service.scan(
+                date.fromisoformat(start) if start else None,
+                date.fromisoformat(end) if end else None,
+            )
+        else:
+            raise SystemExit(f"unknown market-state action: {action}")
+    except DomainError as error:
+        raise SystemExit(f"{error.code}: {error.message}") from None
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    if output:
+        target = Path(output)
+        if not target.is_absolute():
+            target = ROOT / target
+        target = target.resolve()
+        if not target.is_relative_to(SCRATCH.resolve()):
+            raise SystemExit("market-state output must be inside .scratch")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -701,10 +1054,12 @@ def main() -> None:
             "contract",
             "migrate-local",
             "dev",
+            "source-db",
             "worker",
             "db-config",
             "db-check",
             "market-check",
+            "market-state",
             "prototype",
             "identity",
             "icons",
@@ -718,6 +1073,16 @@ def main() -> None:
         help="prototype: list navigation, dump shape JSON, or copy the HTML",
     )
     parser.add_argument("--to", metavar="PATH", help="prototype copy: destination path")
+    parser.add_argument(
+        "--market-state-action",
+        choices=["describe", "scan"],
+        default="describe",
+        help="market-state: emit one date or scan label distribution",
+    )
+    parser.add_argument("--date", help="market-state describe: YYYY-MM-DD")
+    parser.add_argument("--start", help="market-state scan: YYYY-MM-DD")
+    parser.add_argument("--end", help="market-state scan: YYYY-MM-DD")
+    parser.add_argument("--output", help="market-state: optional .scratch JSON path")
     parser.add_argument(
         "--identity-action",
         dest="identity_action",
@@ -751,10 +1116,20 @@ def main() -> None:
         migrate()
     elif args.task == "dev":
         dev()
+    elif args.task == "source-db":
+        source_database_tunnel()
     elif args.task == "worker":
         run(sys.executable, "-m", "research_platform.modules.execution.worker")
     elif args.task == "market-check":
         market_check()
+    elif args.task == "market-state":
+        market_state_description(
+            args.market_state_action,
+            trade_date=args.date,
+            start=args.start,
+            end=args.end,
+            output=args.output,
+        )
     elif args.task == "prototype":
         prototype(args.action, args.to)
     elif args.task == "icons":

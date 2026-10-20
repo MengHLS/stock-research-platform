@@ -21,6 +21,7 @@ export interface CalendarCell {
   day: number
   date: string | null
   count: number | null
+  downCount: number | null
   available: boolean
   weekend: boolean
 }
@@ -31,6 +32,8 @@ export interface MonthCalendarModel {
   tradingDays: number
   knownDays: number
   total: number
+  downKnownDays: number
+  downTotal: number
   average: number | null
   peakDate: string | null
   peak: number | null
@@ -174,6 +177,8 @@ export function buildMonthCalendar(month: string, dates: ReviewDate[]): MonthCal
       tradingDays: 0,
       knownDays: 0,
       total: 0,
+      downKnownDays: 0,
+      downTotal: 0,
       average: null,
       peakDate: null,
       peak: null,
@@ -187,26 +192,34 @@ export function buildMonthCalendar(month: string, dates: ReviewDate[]): MonthCal
   )
   const cells: Array<CalendarCell | null> = Array.from({ length: firstWeekday }, () => null)
   const monthDates = [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date))
-  const known = monthDates.filter((item) => item.limit_up.status === 'available')
-  const counts = known.map((item) => item.limit_up.row_count)
+  const upCounts = monthDates.map(displayedLimitUpCount)
+  const downCounts = monthDates.map(displayedLimitDownCount)
+  const counts = upCounts.filter((count): count is number => count !== null)
+  const knownDown = downCounts.filter((count): count is number => count !== null)
   const total = counts.reduce((sum, count) => sum + count, 0)
+  const downTotal = knownDown.reduce((sum, count) => sum + count, 0)
   const peak = counts.length ? Math.max(...counts) : null
   const peakDate =
-    peak === null ? null : (known.find((item) => item.limit_up.row_count === peak)?.date ?? null)
-  const activityDays = known
-    .filter((item) => item.limit_up.row_count > 0)
-    .map((item) => ({ date: item.date, count: item.limit_up.row_count }))
+    peak === null ? null : (monthDates.find((_, index) => upCounts[index] === peak)?.date ?? null)
+  const activityDays = monthDates
+    .map((item, index) => ({ date: item.date, count: upCounts[index] }))
+    .filter(
+      (item): item is { date: string; count: number } => item.count !== null && item.count > 0,
+    )
     .sort((left, right) => right.count - left.count || right.date.localeCompare(left.date))
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = `${month}-${String(day).padStart(2, '0')}`
     const source = byDate.get(date)
     const weekday = (new Date(Date.UTC(year, monthNumber - 1, day)).getUTCDay() + 6) % 7
+    const count = source ? displayedLimitUpCount(source) : null
+    const downCount = source ? displayedLimitDownCount(source) : null
     cells.push({
       day,
       date: source?.date ?? null,
-      count: source?.limit_up.status === 'available' ? source.limit_up.row_count : null,
-      available: source?.limit_up.status === 'available',
+      count,
+      downCount,
+      available: count !== null,
       weekend: weekday >= 5,
     })
   }
@@ -214,13 +227,27 @@ export function buildMonthCalendar(month: string, dates: ReviewDate[]): MonthCal
     month,
     cells,
     tradingDays: monthDates.length,
-    knownDays: known.length,
+    knownDays: counts.length,
     total,
-    average: known.length ? total / known.length : null,
+    downKnownDays: knownDown.length,
+    downTotal,
+    average: counts.length ? total / counts.length : null,
     peakDate,
     peak,
     activityDays,
   }
+}
+
+function displayedLimitUpCount(item: ReviewDate): number | null {
+  return item.market_state_counts?.status === 'available'
+    ? (item.limit_up_close_count ?? null)
+    : null
+}
+
+function displayedLimitDownCount(item: ReviewDate): number | null {
+  return item.market_state_counts?.status === 'available'
+    ? (item.limit_down_close_count ?? null)
+    : null
 }
 
 export function shiftMonth(month: string, delta: number): string {

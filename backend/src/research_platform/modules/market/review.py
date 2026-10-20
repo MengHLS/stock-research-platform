@@ -8,6 +8,7 @@ into a reassuring zero.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -17,10 +18,12 @@ from typing import Literal, Protocol
 from research_platform.core.cache import TTLCache
 from research_platform.core.config import ReviewConfig
 from research_platform.core.errors import DomainError
+from research_platform.core.logging import log_event
 
 from .market_time import exchange_now
 from .review_schemas import (
     CoverageRead,
+    HighBoardStockRead,
     IndexCoverageRead,
     LadderRead,
     LadderRowRead,
@@ -44,6 +47,7 @@ from .review_schemas import (
     ReviewSummaryRead,
     ThemeCountRead,
 )
+from .state_description import MarketStateLimitCounts
 from .symbols import parse_symbol
 
 REVIEW_VERSION = "market-review-v1"
@@ -55,16 +59,31 @@ INDEX_NAMES = {
     "000905.SH": "中证500",
 }
 INDEX_SYMBOLS = tuple(INDEX_NAMES)
+HIGH_BOARD_MIN = 6
+MARKET_STATE_COUNT_ISSUES = {
+    "SOURCE_NOT_CONFIGURED": (
+        "market_state_counts_not_configured",
+        "冻结市场状态未配置，涨跌停日历家数保持空值。",
+    ),
+    "MARKET_STATE_SOURCE_UNAVAILABLE": (
+        "market_state_counts_source_unavailable",
+        "冻结市场状态不可读取，涨跌停日历家数保持空值。",
+    ),
+    "MARKET_STATE_SOURCE_BAD_DATA": (
+        "market_state_counts_source_bad_data",
+        "冻结市场状态校验失败，涨跌停日历家数保持空值。",
+    ),
+}
 SOURCE_ISSUES = (
     ReviewIssueRead(
         code="source_presence_only",
         scope="source",
-        message="覆盖状态由源中是否存在行判定，不能证明完整采集。",
+        message="数据覆盖只表示记录存在，不能证明已完整采集。",
     ),
     ReviewIssueRead(
         code="calendar_derived_from_index_daily",
         scope="calendar",
-        message="交易日由旧库 index_daily 日期推导，不是独立维护的交易日历。",
+        message="交易日按历史行情日期推导，不是独立维护的交易日历。",
     ),
 )
 
@@ -167,6 +186,14 @@ class ReviewSource(Protocol):
     def index_rows(self, start: date, end: date, symbols: list[str]) -> list[IndexBar]: ...
 
 
+class MarketStateLimitCountSource(Protocol):
+    def limit_counts(
+        self,
+        start: date,
+        end: date,
+    ) -> dict[date, MarketStateLimitCounts]: ...
+
+
 class ReviewSourceDataError(ValueError):
     """A source row cannot be interpreted under the reviewed schema."""
 
@@ -195,10 +222,12 @@ class MarketReviewService:
         source: ReviewSource | None,
         config: ReviewConfig,
         *,
+        market_state_counts: MarketStateLimitCountSource | None = None,
         cache: TTLCache | None = None,
     ) -> None:
         self._source = source
         self._config = config
+        self._market_state_counts = market_state_counts
         self._cache = cache if cache is not None else TTLCache()
 
     @property
@@ -287,6 +316,8 @@ class MarketReviewService:
             source.daily_coverage(start, end),
             key=lambda row: _as_date(row.trading_day),
         )
+        limit_counts, count_error = self._limit_counts(start, end)
+        issues = list(SOURCE_ISSUES)
         rows: list[ReviewDateRead] = []
         for coverage in coverage_rows:
             day = _as_date(coverage.trading_day)
@@ -296,20 +327,82 @@ class MarketReviewService:
                 csi300=_coverage(coverage.csi300_rows),
                 csi500=_coverage(coverage.csi500_rows),
             )
+            counts = limit_counts.get(day)
             rows.append(
                 ReviewDateRead(
                     date=day,
                     limit_up=_coverage(coverage.limit_up_rows),
                     market_wide=_coverage(coverage.market_wide_rows),
                     indices=index_coverage,
+                    market_state_counts=_coverage(1) if counts else None,
+                    market_state_coverage_status=(
+                        counts.coverage_status if counts is not None else None
+                    ),
+                    limit_up_close_count=(
+                        counts.limit_up_close_count if counts is not None else None
+                    ),
+                    limit_down_close_count=(
+                        counts.limit_down_close_count if counts is not None else None
+                    ),
+                )
+            )
+        if count_error is not None:
+            code, message = MARKET_STATE_COUNT_ISSUES[count_error]
+            issues.append(
+                ReviewIssueRead(
+                    code=code,
+                    scope=f"{start.isoformat()}/{end.isoformat()}",
+                    message=message,
+                )
+            )
+        elif rows and any(row.market_state_counts is None for row in rows):
+            issues.append(
+                ReviewIssueRead(
+                    code="market_state_counts_unavailable",
+                    scope=f"{start.isoformat()}/{end.isoformat()}",
+                    message="部分交易日缺少冻结市场状态的涨跌停计数，相关数字保持空值。",
+                )
+            )
+        if any(counts.coverage_status != "VERIFIED_UNIVERSE" for counts in limit_counts.values()):
+            issues.append(
+                ReviewIssueRead(
+                    code="market_state_counts_unverified",
+                    scope=f"{start.isoformat()}/{end.isoformat()}",
+                    message="部分交易日的涨跌停计数不是完整验证口径。",
                 )
             )
         return ReviewDatesRead(
             start=start,
             end=end,
             dates=rows,
-            issues=list(SOURCE_ISSUES),
+            issues=_dedupe_issues(issues),
         )
+
+    def _limit_counts(
+        self,
+        start: date,
+        end: date,
+    ) -> tuple[dict[date, MarketStateLimitCounts], str | None]:
+        if self._market_state_counts is None:
+            log_event(
+                "market.review_market_state_counts_failed",
+                level=logging.WARNING,
+                source="market_state",
+                reason="SOURCE_NOT_CONFIGURED",
+            )
+            return {}, "SOURCE_NOT_CONFIGURED"
+        try:
+            return self._market_state_counts.limit_counts(start, end), None
+        except DomainError as error:
+            if error.code in MARKET_STATE_COUNT_ISSUES:
+                log_event(
+                    "market.review_market_state_counts_failed",
+                    level=logging.WARNING,
+                    source="market_state",
+                    reason=error.code,
+                )
+                return {}, error.code
+            raise
 
     def _context(
         self,
@@ -1134,6 +1227,19 @@ class MarketReviewService:
                 len(max_board_stocks) if summary.max_board is not None else None
             ),
             max_board_stocks=max_board_stocks[:12],
+            high_board_stocks=sorted(
+                (
+                    HighBoardStockRead(
+                        symbol=record.symbol,
+                        name=record.name or record.symbol,
+                        boards=result.boards,
+                    )
+                    for symbol, record in records.items()
+                    if (result := assessments[symbol]).boards is not None
+                    and result.boards >= HIGH_BOARD_MIN
+                ),
+                key=lambda item: (-item.boards, item.symbol),
+            ),
             unknown_fields=unknown_fields,
             turnover_100m_cny=(market_row.turnover_100m_cny if market_row else None),
             margin_balance_100m_cny=(market_row.margin_balance_100m_cny if market_row else None),

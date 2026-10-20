@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
 import MarketBreadthChart from './MarketBreadthChart.vue'
 import type { ReviewHistoryRow } from '../../market/review'
@@ -12,9 +12,9 @@ const props = defineProps<{
 const rows = computed(() =>
   [...props.history].sort((left, right) => left.date.localeCompare(right.date)),
 )
-const localWindow = ref(60)
+const localWindow = ref(120)
 const windowOptions = computed(() => {
-  const values = [30, 60].filter((window) => window <= rows.value.length)
+  const values = [30, 60, 120].filter((window) => window <= rows.value.length)
   if (rows.value.length && !values.includes(rows.value.length)) values.push(rows.value.length)
   return Array.from(new Set(values)).sort((left, right) => left - right)
 })
@@ -28,14 +28,6 @@ const hasData = computed(() =>
       row.margin_balance_100m_cny !== null,
   ),
 )
-
-watch(
-  () => props.history,
-  () => {
-    if (rows.value.length) localWindow.value = Math.min(localWindow.value, rows.value.length)
-  },
-  { immediate: true },
-)
 </script>
 
 <template>
@@ -45,6 +37,7 @@ watch(
       <span class="sub">
         截至 {{ latest?.date ?? '—' }} ·
         {{ visibleRows.length ? `近 ${visibleRows.length} 个交易日` : '暂无交易日数据' }}
+        <template v-if="rows.length > 0 && rows.length < 120"> · 历史不足120日</template>
       </span>
       <span class="grow" />
       <div v-if="windowOptions.length" class="windows" role="group" aria-label="量能图时间窗口">
@@ -52,8 +45,8 @@ watch(
           v-for="option in windowOptions"
           :key="option"
           type="button"
-          :class="{ active: option === localWindow }"
-          :aria-pressed="option === localWindow"
+          :class="{ active: option === Math.min(localWindow, rows.length) }"
+          :aria-pressed="option === Math.min(localWindow, rows.length)"
           @click="localWindow = option"
         >
           {{ option }}日

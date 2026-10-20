@@ -84,7 +84,7 @@ const roadmap = computed(() =>
         </h1>
         <p class="hero__lede">
           {{ brand.description }}。产品名"{{ brand.name }}"取自稳固基座：行情、竞价、模式目录与
-          执行记录共用一套身份与服务端边界，页面只展示后端真正能提供的东西。
+          执行记录放在同一个工作台，页面只展示当前真正可用的能力。
         </p>
         <div class="hero__meta">
           <span class="tag">{{ brand.latin }}</span>
@@ -110,7 +110,7 @@ const roadmap = computed(() =>
       <section class="block" aria-labelledby="cap-title">
         <div class="block__head">
           <h2 id="cap-title">四块能力</h2>
-          <p>每一条都对应仓库里已有的模块，不含规划中的功能。</p>
+          <p>每一条都对应已上线能力，不含规划中的功能。</p>
         </div>
         <div class="grid">
           <article v-for="item in capabilities" :key="item.id" class="cap">
@@ -127,10 +127,7 @@ const roadmap = computed(() =>
       <section class="block" aria-labelledby="roadmap-title">
         <div class="block__head">
           <h2 id="roadmap-title">已实现与待实施</h2>
-          <p>
-            与左侧导航同一份数据（<code>navigation.ts</code>）：标为待开发的入口在界面上也是
-            可见但不可点击，不会假装能用。
-          </p>
+          <p>导航中标为待开发的入口在界面上可见但不可点击，不会假装能用。</p>
         </div>
         <div class="roadmap">
           <div v-for="group in roadmap" :key="group.title" class="roadmap__group">

@@ -135,12 +135,12 @@ async function probe() {
 
 /**
  * `/health/live` answers exactly one question: the process is serving. It does
- * not check the database (`/health/ready` does), so the label says "进程存活".
+ * not check the database (`/health/ready` does), so the label says "运行中".
  */
 const apiLabel = computed(() => {
   switch (apiState.value) {
     case 'ok':
-      return '进程存活'
+      return '运行中'
     case 'unavailable':
       return '未就绪'
     case 'failed':
@@ -203,10 +203,7 @@ onUnmounted(() => controller?.abort())
 
       <p v-if="upstreamEnabled === false" class="status__note status__note--warn" role="status">
         <AppIcon name="alert-triangle" :size="12" />
-        <span>
-          外部行情已关闭（<code>RP_UPSTREAM__ENABLED=false</code>）：下面的"已配置"只表示
-          凭据齐全，所有行情调用都会返回 <code>MARKET_SOURCE_DISABLED</code>。
-        </span>
+        <span> 外部行情已关闭：下方的"已配置"只表示配置存在，行情调用会失败。 </span>
       </p>
 
       <ul v-if="sourcesState === 'ok'" class="status__sources">
@@ -220,7 +217,6 @@ onUnmounted(() => controller?.abort())
       <p v-else-if="sourcesState === 'failed'" class="status__note">
         数据源配置读取失败（{{ sourcesFailure?.message ?? '未知原因' }}）
         <span v-if="sourcesFailure?.requestId" class="mono">· {{ sourcesFailure.requestId }}</span>
-        ，不显示推测值。
       </p>
       <p v-else class="status__note">正在读取数据源配置…</p>
 
@@ -242,7 +238,7 @@ onUnmounted(() => controller?.abort())
     </div>
 
     <footer class="status__foot">
-      <span>数值来自本站真实接口，不探活外部数据源</span>
+      <span>状态来自本服务实际响应</span>
       <span class="status__sep" aria-hidden="true"></span>
       <button type="button" class="status__retry" @click="probe">
         <AppIcon name="refresh" :size="11" />
@@ -448,11 +444,6 @@ onUnmounted(() => controller?.abort())
 .status__note--warn {
   color: var(--warn);
   align-items: flex-start;
-}
-
-.status__note--warn code {
-  font-family: var(--mono);
-  font-size: 10px;
 }
 
 .status__foot {

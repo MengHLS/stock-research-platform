@@ -19,6 +19,7 @@ const emit = defineEmits<{
 
 const maxCount = computed(() => Math.max(1, ...props.model.cells.map((cell) => cell?.count ?? 0)))
 const hasIncompleteDays = computed(() => props.model.knownDays < props.model.tradingDays)
+const hasIncompleteDownDays = computed(() => props.model.downKnownDays < props.model.tradingDays)
 const activityDays = computed(() => props.model.activityDays.slice(0, 6))
 const maxActivityCount = computed(() =>
   Math.max(1, ...activityDays.value.map((item) => item.count)),
@@ -38,7 +39,13 @@ function missingCellTitle(day: number) {
   const date = `${props.model.month}-${String(day).padStart(2, '0')}`
   if (props.loading) return `${date} 的交易日历正在读取`
   if (props.failure) return `${date} 的交易日历读取失败`
-  return `${date} 不在源交易日历中`
+  return `${date} 不在交易日历中`
+}
+
+function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
+  const up = cell.count === null ? '涨停计数缺失' : `${cell.count} 家涨停`
+  const down = cell.downCount === null ? '跌停计数缺失' : `${cell.downCount} 家跌停`
+  return `${cell.date}，${up}，${down}`
 }
 </script>
 
@@ -46,8 +53,8 @@ function missingCellTitle(day: number) {
   <section class="panel calendar-panel" :aria-busy="loading">
     <header class="panel-head">
       <div>
-        <h2>涨停日历</h2>
-        <p>每天涨停家数 · 色深表示数量 · 缺失显示斜纹</p>
+        <h2>涨跌停日历</h2>
+        <p>每天涨停 / 跌停家数 · 色深表示涨停数量 · 缺失显示斜纹</p>
       </div>
       <div class="head-tools">
         <slot name="date-controls" />
@@ -88,12 +95,21 @@ function missingCellTitle(day: number) {
               'calendar-cell--weekend': cell.weekend,
             }"
             :style="heat(cell)"
-            :aria-label="`${cell.date}，${cell.available ? `${cell.count} 家涨停` : '涨停记录缺失'}`"
+            :aria-label="countLabel(cell)"
             :aria-pressed="cell.date === selectedDate"
             @click="emit('select', cell.date)"
           >
             <span class="calendar-day">{{ cell.day }}</span>
-            <b>{{ cell.available ? cell.count : '—' }}</b>
+            <span class="calendar-counts">
+              <span class="count-up">
+                <em>涨</em>
+                <b>{{ cell.count ?? '—' }}</b>
+              </span>
+              <span class="count-down">
+                <em>跌</em>
+                <b>{{ cell.downCount ?? '—' }}</b>
+              </span>
+            </span>
           </button>
           <div
             v-else
@@ -124,9 +140,17 @@ function missingCellTitle(day: number) {
             <em>{{ model.knownDays }}/{{ model.tradingDays }} 个交易日有记录</em>
           </article>
           <article>
+            <span>{{ hasIncompleteDownDays ? '本月已知跌停合计' : '本月跌停合计' }}</span>
+            <b v-if="model.downKnownDays">
+              {{ hasIncompleteDownDays ? '≥' : '' }}{{ model.downTotal }}<small>家</small>
+            </b>
+            <b v-else>—</b>
+            <em> {{ model.downKnownDays }}/{{ model.tradingDays }} 个交易日有涨跌停计数 </em>
+          </article>
+          <article>
             <span>有记录日均值</span>
             <b> {{ model.average === null ? '—' : model.average.toFixed(1) }}<small>家</small> </b>
-            <em>只按源中存在记录的日期计算</em>
+            <em>只按有记录的日期计算</em>
           </article>
           <article>
             <span>{{ hasIncompleteDays ? '已知峰值日' : '峰值日' }}</span>
@@ -145,6 +169,7 @@ function missingCellTitle(day: number) {
                 type="button"
                 :class="{ selected: item.date === selectedDate }"
                 :aria-label="`${item.date}，${item.count} 家涨停`"
+                :aria-pressed="item.date === selectedDate"
                 @click="emit('select', item.date)"
               >
                 <span class="mono">{{ item.date.slice(5) }}</span>
@@ -162,7 +187,7 @@ function missingCellTitle(day: number) {
             <span class="legend-missing">斜纹 = 记录缺失</span>
           </div>
           <p class="calendar-note">
-            日历按旧库 <code>index_daily</code> 的交易日列出；没有涨停行的交易日不会显示成 0。
+            涨停、跌停取同一冻结市场状态交易日；0 家是有效计数，缺少对应计数才显示“—”。
           </p>
         </template>
       </div>
@@ -342,10 +367,39 @@ function missingCellTitle(day: number) {
   opacity: 0.68;
 }
 
-.calendar-cell b {
+.calendar-counts {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.calendar-counts > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+}
+
+.calendar-counts em {
+  color: currentColor;
+  font-size: 8.5px;
+  font-style: normal;
+  opacity: 0.7;
+}
+
+.calendar-counts b {
+  color: inherit;
   font-family: var(--mono);
-  font-size: clamp(13px, 1vw, 18px);
+  font-size: clamp(11px, 0.85vw, 16px);
   line-height: 1;
+}
+
+.count-up b {
+  color: inherit;
+}
+
+.count-down b {
+  color: inherit;
 }
 
 .month-summary {

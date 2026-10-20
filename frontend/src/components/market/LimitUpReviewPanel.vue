@@ -105,6 +105,26 @@ function sortArrow(key: LimitUpSortKey) {
   return sortDirection.value === 'asc' ? '▲' : '▼'
 }
 
+function selectRow(row: LimitUpReviewRow, event: MouseEvent) {
+  const target = event.target as Element | null
+  if (
+    target?.closest(
+      'button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [contenteditable]:not([contenteditable="false"]), [data-row-action]',
+    )
+  ) {
+    return
+  }
+  // Give the shared dialog a stable focus target to restore when it closes.
+  ;(event.currentTarget as HTMLElement).focus({ preventScroll: true })
+  emit('select', row)
+}
+
+function selectRowByKeyboard(row: LimitUpReviewRow, event: KeyboardEvent) {
+  if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+  event.preventDefault()
+  if (!event.repeat) emit('select', row)
+}
+
 function resetFilters() {
   Object.assign(filters, defaultLimitUpFilters())
 }
@@ -130,7 +150,7 @@ function exportCsv() {
     <header class="panel-head">
       <div class="heading-copy">
         <h2>{{ heading }}</h2>
-        <p>{{ sourceHint }} · 封单与换手源数据未提供，本页不生成模拟值</p>
+        <p>{{ sourceHint }} · 封单额与换手率暂无数据</p>
       </div>
       <button type="button" class="tool-button" :disabled="!filtered.length" @click="exportCsv">
         <AppIcon name="download" :size="13" />
@@ -315,7 +335,16 @@ function exportCsv() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in paged.items" :key="`${row.date}-${row.symbol}-${row.status}`">
+            <tr
+              v-for="row in paged.items"
+              :key="`${row.date}-${row.symbol}-${row.status}`"
+              class="detail-row"
+              tabindex="0"
+              :aria-label="`查看 ${row.name} ${row.symbol} ${row.date} ${limitUpStatusLabel(row)}详情`"
+              aria-haspopup="dialog"
+              @click="selectRow(row, $event)"
+              @keydown="selectRowByKeyboard(row, $event)"
+            >
               <td class="mono">{{ row.symbol }}</td>
               <td class="name-cell">
                 {{ row.name }}
@@ -345,7 +374,9 @@ function exportCsv() {
                 </span>
               </td>
               <td class="align-right">
-                <button type="button" class="row-button" @click="emit('select', row)">详情</button>
+                <button type="button" class="row-button" @click.stop="emit('select', row)">
+                  详情
+                </button>
               </td>
             </tr>
           </tbody>
@@ -670,8 +701,18 @@ function exportCsv() {
   white-space: nowrap;
 }
 
-.detail-table tbody tr:hover td {
+.detail-row {
+  cursor: pointer;
+}
+
+.detail-row:hover td,
+.detail-row:focus-visible td {
   background: color-mix(in oklab, var(--surface2) 72%, transparent);
+}
+
+.detail-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .detail-table td small {

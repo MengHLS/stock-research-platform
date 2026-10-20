@@ -72,9 +72,7 @@ onUnmounted(() => controller?.abort())
     <section class="panel">
       <span class="eyebrow">FOUNDATION</span>
       <h2>磐石为基，研究其上。</h2>
-      <p class="lede">
-        前后端分离、业务模块清晰、接口类型自动生成。这里展示实际工程状态，不模拟研究收益或任务完成。
-      </p>
+      <p class="lede">这里展示服务的实际运行状态，不展示示例数据。</p>
       <div class="status-row">
         <span class="pill" :class="`pill--${stateClass}`">
           <AppIcon name="activity" :size="13" />
@@ -99,30 +97,25 @@ onUnmounted(() => controller?.abort())
       <section class="panel card">
         <span class="eyebrow">01 / 行情</span>
         <h3>历史复盘总览已接入</h3>
-        <p>
-          腾讯快照与分钟K线、新浪竞价成交、东方财富竞价曲线、Tushare
-          日线；旧研究源的共享历史复盘也已接入。页面区分缺失、部分可评估和真实零值。
-        </p>
+        <p>历史行情与复盘数据已接入；页面区分缺失、部分可评估和真实零值。</p>
         <RouterLink class="card__link" to="/market/overview">行情复盘总览 →</RouterLink>
       </section>
       <section class="panel card">
         <span class="eyebrow">02 / 身份</span>
         <h3>注册登录</h3>
-        <p>自建账号体系，scrypt 密码哈希与服务端可撤销会话；私人资源按用户隔离。</p>
+        <p>账号登录与会话已接入；私人资源按用户隔离。</p>
         <RouterLink class="card__link" to="/research/patterns">模式库 →</RouterLink>
       </section>
       <section class="panel card">
         <span class="eyebrow">03 / 执行</span>
         <h3>独立 Worker</h3>
-        <p>持久化作业、幂等提交、租约与恢复。目前只注册数据库诊断，研究执行器待接入。</p>
+        <p>研究执行器尚未接入，目前只提供基础诊断。</p>
       </section>
     </div>
 
     <section class="panel">
       <h3>下一步</h3>
-      <p>
-        按原型继续补齐涨停明细、情绪周期、策略与版本、数据集和决策日志。页面在设计就绪前不显示示例数据。
-      </p>
+      <p>策略与版本、数据集和决策日志仍待补齐；未实现前不显示示例数据。</p>
     </section>
   </div>
 </template>

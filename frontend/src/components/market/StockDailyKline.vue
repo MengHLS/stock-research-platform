@@ -307,7 +307,7 @@ function moveCursor(step: number) {
       </span>
     </div>
 
-    <p class="chart-note">仅绘制完整 OHLC；缺失日不补蜡烛，MA 在历史样本不完整时断开。</p>
+    <p class="chart-note">缺失交易日不补画 K 线；均线在样本不足时断开。</p>
   </div>
 </template>
 

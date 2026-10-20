@@ -122,7 +122,7 @@ function saveNote() {
           <div class="section-title">
             <div>
               <h3>个股日 K</h3>
-              <p>旧源 stock_daily_prices · 前复权口径未声明，按原始 OHLC 展示</p>
+              <p>按数据源价格展示，复权口径未确认</p>
             </div>
             <span v-if="stockSeries">{{ stockSeries.window_actual }} 个交易日</span>
           </div>
@@ -139,15 +139,10 @@ function saveNote() {
           <div v-else-if="stockSeries && hasCandles" class="chart-scroll">
             <StockDailyKline :series="stockSeries" :selected-date="row.date" />
           </div>
-          <div v-else class="chart-state">当前窗口没有完整的个股 OHLC，未用推算数据补绘。</div>
+          <div v-else class="chart-state">当前窗口没有完整的个股日 K 数据。</div>
         </section>
 
-        <section class="capability-note">
-          <h3>数据边界</h3>
-          <p>
-            旧源当前提供涨停记录、板数、封板时间与个股日线；封单额与换手率尚未接入，页面保持为空缺而不生成模拟值。
-          </p>
-        </section>
+        <p class="data-gap">封单额与换手率暂无数据。</p>
       </div>
 
       <aside class="detail-side">
@@ -319,7 +314,6 @@ function saveNote() {
 
 .chart-section,
 .note-section,
-.capability-note,
 .same-sector {
   min-width: 0;
   padding-top: 14px;
@@ -334,8 +328,7 @@ function saveNote() {
   margin-bottom: 9px;
 }
 
-.section-title h3,
-.capability-note h3 {
+.section-title h3 {
   margin: 0;
   color: var(--fg2);
   font-size: 14px;
@@ -442,8 +435,8 @@ function saveNote() {
   font-size: 11.5px;
 }
 
-.capability-note p {
-  margin: 6px 0 0;
+.data-gap {
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.6;

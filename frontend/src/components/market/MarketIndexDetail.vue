@@ -53,8 +53,8 @@ const hasCompleteBars = computed(() => candleData.value.some((values) => values 
     <div v-if="hasCompleteBars" class="chart-scroll">
       <MarketIndexKline :bars="series.bars" :selected-date="date" />
     </div>
-    <div v-else class="empty">该窗口没有完整 OHLC，未用推算数据代替。</div>
-    <p class="note">仅绘制完整 OHLC；缺少某日时不补蜡烛，MA 在需要的历史样本不完整时保持断点。</p>
+    <div v-else class="empty">该窗口没有完整的日 K 数据。</div>
+    <p class="note">缺失交易日不补画；均线在样本不足时断开。</p>
   </div>
 </template>
 

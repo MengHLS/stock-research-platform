@@ -226,7 +226,7 @@ async function submit() {
                 :autocomplete="isRegister ? 'new-password' : 'current-password'"
                 required
                 maxlength="128"
-                :placeholder="isRegister ? '至少 10 个字符' : '输入密码'"
+                :placeholder="isRegister ? '默认至少 10 个字符' : '输入密码'"
               />
               <span class="control__trail">
                 <button
@@ -240,9 +240,7 @@ async function submit() {
                 </button>
               </span>
             </span>
-            <span v-if="isRegister" class="hint">
-              至少 10 个字符（服务端 <code>RP_AUTH__MIN_PASSWORD_LENGTH</code> 的默认值）。
-            </span>
+            <span v-if="isRegister" class="hint"> 默认至少 10 个字符。 </span>
           </label>
 
           <p v-if="localError" class="error" role="alert">
@@ -487,12 +485,6 @@ async function submit() {
 .hint {
   font-size: 10.5px;
   line-height: 1.5;
-  color: var(--fg2);
-}
-
-.hint code {
-  font-family: var(--mono);
-  font-size: 10px;
   color: var(--fg2);
 }
 

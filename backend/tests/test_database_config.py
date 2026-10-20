@@ -247,6 +247,56 @@ def test_local_migration_refuses_structured_application_mysql(monkeypatch):
         task_functions()["migrate"]()
 
 
+def test_source_tunnel_requires_an_ssh_host(monkeypatch):
+    for key, value in profile().items():
+        monkeypatch.setenv(f"RP_SOURCE_MYSQL__{key.upper()}", value)
+    monkeypatch.setenv("RP_SOURCE_MYSQL__HOST", "127.0.0.1")
+    settings = Settings(_env_file=None)
+    with pytest.raises(SystemExit, match="RP_SOURCE_SSH_HOST"):
+        task_functions()["source_database_tunnel"](settings)
+
+
+def test_source_tunnel_rejects_non_loopback_endpoint(monkeypatch):
+    for key, value in profile().items():
+        monkeypatch.setenv(f"RP_SOURCE_MYSQL__{key.upper()}", value)
+    monkeypatch.setenv("RP_SOURCE_MYSQL__HOST", "0.0.0.0")
+    monkeypatch.setenv("RP_SOURCE_SSH_HOST", "deploy.example")
+    with pytest.raises(SystemExit, match="loopback"):
+        task_functions()["source_database_tunnel"](Settings(_env_file=None))
+
+
+def test_source_tunnel_forwards_the_configured_endpoint(monkeypatch, tmp_path):
+    for key, value in profile().items():
+        monkeypatch.setenv(f"RP_SOURCE_MYSQL__{key.upper()}", value)
+    monkeypatch.setenv("RP_SOURCE_MYSQL__HOST", "127.0.0.1")
+    monkeypatch.setenv("RP_SOURCE_MYSQL__PORT", "13306")
+    monkeypatch.setenv("RP_SOURCE_SSH_HOST", "deploy.example")
+    identity = tmp_path / "id_ed25519"
+    identity.write_text("test-only", encoding="utf-8")
+    monkeypatch.setenv("RP_SOURCE_SSH_IDENTITY", str(identity))
+    captured = []
+    tasks = task_functions()
+    monkeypatch.setattr(
+        tasks["source_database_tunnel"].__globals__["subprocess"],
+        "run",
+        lambda args, check: captured.append(tuple(args)),
+    )
+    tasks["source_database_tunnel"](Settings(_env_file=None))
+    assert captured == [
+        (
+            "ssh",
+            "-N",
+            "-o",
+            "ExitOnForwardFailure=yes",
+            "-i",
+            str(identity),
+            "-L",
+            "127.0.0.1:13306:127.0.0.1:13306",
+            "root@deploy.example",
+        )
+    ]
+
+
 def test_explicit_local_tls_disable_and_invalid_application_url():
     values = profile()
     values["tls"] = "disabled"

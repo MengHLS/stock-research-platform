@@ -9,6 +9,7 @@ import MarketIndexDetail from '../components/market/MarketIndexDetail.vue'
 import MarketIndexPanel from '../components/market/MarketIndexPanel.vue'
 import MarketLadderPanel from '../components/market/MarketLadderPanel.vue'
 import MarketReviewControls from '../components/market/MarketReviewControls.vue'
+import MarketStateDescriptionPanel from '../components/market/MarketStateDescriptionPanel.vue'
 import MarketSummaryPanel from '../components/market/MarketSummaryPanel.vue'
 import MarketThemeHeatmap from '../components/market/MarketThemeHeatmap.vue'
 import ReviewDrawer from '../components/market/ReviewDrawer.vue'
@@ -74,7 +75,7 @@ const windowOptions = computed(() => {
 })
 const selectedWindow = computed(() => parseReviewWindow(route.query.window, maximumWindow.value))
 const chartHistoryWindow = computed(() =>
-  Math.min(maximumWindow.value, Math.max(60, selectedWindow.value)),
+  Math.min(maximumWindow.value, Math.max(120, selectedWindow.value)),
 )
 const chartHistory = computed(() => chartOverview.value?.history ?? overview.value?.history ?? [])
 const previous = computed(() =>
@@ -491,7 +492,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-else-if="context && !context.default_date" class="banner banner--info">
-      源内暂无可用的历史复盘日期。
+      暂无可用的历史复盘日期。
     </section>
 
     <div v-if="loading && !overview" class="loading-panel panel" aria-live="polite">
@@ -532,6 +533,7 @@ onBeforeUnmount(() => {
         />
       </template>
     </MarketSummaryPanel>
+    <MarketStateDescriptionPanel v-if="overview" :date="overview.date" />
     <section v-if="chartHistoryFailure && overview" class="banner banner--warn" role="status">
       <strong>更长周期图表暂按 {{ chartHistory.length }} 个交易日展示。</strong>
       <span>
