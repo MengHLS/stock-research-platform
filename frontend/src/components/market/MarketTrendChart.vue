@@ -136,6 +136,7 @@ function selectActive(index = activeIndex.value) {
   <div ref="chartHost" class="chart-wrap">
     <svg
       class="trend-chart"
+      :style="{ height: `${height}px` }"
       :viewBox="`0 0 ${width} ${height}`"
       role="img"
       aria-label="每日最高连板趋势；方向键可逐日查看，回车在图表内查看当天"
