@@ -27,6 +27,7 @@ const props = defineProps<{
   intradayLoading: boolean
   intradayFailure: string | null
   intradayRequestId?: string | null
+  initialChartMode?: 'daily' | 'intraday'
 }>()
 const emit = defineEmits<{
   'save-note': [note: string]
@@ -39,7 +40,7 @@ const emit = defineEmits<{
 
 const draft = ref(props.note)
 const savedMessage = ref('')
-const chartMode = ref<'daily' | 'intraday'>('daily')
+const chartMode = ref<'daily' | 'intraday'>(props.initialChartMode ?? 'daily')
 let savedSnapshot: { key: string; note: string } | null = null
 const currentRowKey = () => `${props.row.date}|${props.row.symbol}|${props.row.status}`
 const hasCandles = computed(() =>
@@ -203,7 +204,10 @@ function saveNote() {
             <div v-else-if="stockSeries && hasCandles" class="chart-scroll">
               <StockDailyKline :series="stockSeries" :selected-date="row.date" />
             </div>
-            <div v-else class="chart-state">当前窗口没有完整的个股日 K 数据。</div>
+            <div v-else class="chart-state">
+              <span>当前窗口没有完整的个股日 K 数据。</span>
+              <button type="button" @click="emit('retry-stock')">重新读取日 K</button>
+            </div>
           </template>
           <template v-else>
             <div v-if="intradayLoading" class="chart-state">
@@ -219,7 +223,10 @@ function saveNote() {
             <div v-else-if="intradayBars.length" class="chart-scroll">
               <IntradayChart :bars="intradayBars" />
             </div>
-            <div v-else class="chart-state">最近交易日暂无分时数据。</div>
+            <div v-else class="chart-state">
+              <span>最近交易日暂无分时数据。</span>
+              <button type="button" @click="emit('retry-intraday')">重新读取分时</button>
+            </div>
           </template>
         </section>
 

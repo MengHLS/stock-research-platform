@@ -8,9 +8,9 @@ import {
   continuousIntradaySegments,
   formatShares,
   formatShanghaiTime,
+  intradayPriceAxis,
   intradaySlotIndex,
   positivePrice,
-  symmetricIntradayRange,
 } from '../../market/intraday'
 import { chartNumber, formatNumber, formatSignedPercent } from '../../market/review'
 import { linePath } from '../../market/chart'
@@ -49,7 +49,7 @@ watch(
 
 const previousClose = computed(() => positivePrice(props.previousClose))
 const axis = computed(() =>
-  symmetricIntradayRange(
+  intradayPriceAxis(
     previousClose.value,
     timedBars.value.map(({ bar }) => bar.close),
   ),
@@ -205,7 +205,12 @@ function moveCursor(step: number) {
         <text class="axis-value" :x="width - plotRight + 8" :y="yFor(tick.value) + 3">
           {{ formatNumber(tick.value, 2) }}
         </text>
-        <text class="axis-pct" :x="width - plotRight + 8" :y="yFor(tick.value) + 14">
+        <text
+          v-if="previousClose !== null"
+          class="axis-pct"
+          :x="width - plotRight + 8"
+          :y="yFor(tick.value) + 14"
+        >
           {{ formatSignedPercent(tick.pct) }}
         </text>
       </g>
@@ -225,7 +230,15 @@ function moveCursor(step: number) {
         :x="(plotLeft + width - plotRight) / 2"
         :y="plotTop + 42"
       >
-        昨收缺失，无法计算涨跌幅及价格轴
+        暂无有效分钟价格，无法绘制价格轴
+      </text>
+      <text
+        v-else-if="previousClose === null"
+        class="reference-note"
+        :x="plotLeft"
+        :y="plotTop - 8"
+      >
+        昨收缺失，纵轴按价格区间展示；涨跌幅不可用
       </text>
 
       <line
@@ -358,6 +371,11 @@ function moveCursor(step: number) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+.reference-note {
+  fill: var(--muted);
+  font-size: 10px;
 }
 
 .legend i {

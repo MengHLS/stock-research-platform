@@ -317,6 +317,30 @@ export function symmetricIntradayRange(
   }
 }
 
+export function intradayPriceAxis(
+  previousClose: string | number | null | undefined,
+  values: readonly (string | number | null | undefined)[],
+): IntradayPriceAxis | null {
+  const symmetric = symmetricIntradayRange(previousClose, values)
+  if (symmetric) return symmetric
+
+  const prices = values
+    .map((value) => positivePrice(value))
+    .filter((value): value is number => value !== null)
+  if (!prices.length) return null
+  const minimum = Math.min(...prices)
+  const maximum = Math.max(...prices)
+  const center = (minimum + maximum) / 2
+  const maximumDeviation = (maximum - minimum) / 2 / center
+  const boundPct = Math.max(0.005, maximumDeviation * 1.08)
+  return {
+    center,
+    top: center * (1 + boundPct),
+    bottom: center * (1 - boundPct),
+    boundPct,
+  }
+}
+
 export function latestTradingDayBars(bars: readonly IntradayBar[]): IntradayBar[] {
   if (!bars.length) return []
   const latest = bars.reduce((winner, bar) =>

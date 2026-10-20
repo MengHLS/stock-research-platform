@@ -78,4 +78,21 @@ describe('limit-up stock detail industry', () => {
     expect(html).toContain('日 K')
     expect(html).toContain('最近分时')
   })
+
+  it('offers a retry in the empty daily and intraday states', async () => {
+    const daily = await renderToString(createSSRApp(LimitUpDetail, props()))
+    const intraday = await renderToString(
+      createSSRApp(
+        LimitUpDetail,
+        props({
+          initialChartMode: 'intraday',
+          intradayTradingDay: '2026-10-20',
+        }),
+      ),
+    )
+
+    expect(daily).toContain('重新读取日 K')
+    expect(intraday).toContain('最近分时 · 2026-10-20')
+    expect(intraday).toContain('重新读取分时')
+  })
 })

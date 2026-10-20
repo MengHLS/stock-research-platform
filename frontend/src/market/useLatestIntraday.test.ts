@@ -109,6 +109,39 @@ describe('latest intraday loading', () => {
     expect(detail.bars.value).toHaveLength(2)
   })
 
+  it('treats an explicit no-data response as empty and still allows a forced retry', async () => {
+    let calls = 0
+    const detail = useLatestIntraday(async (symbol) => {
+      calls += 1
+      if (calls === 1) {
+        return {
+          ok: false,
+          failure: {
+            kind: 'business',
+            code: 'MARKET_DATA_UNAVAILABLE',
+            message: '没有可用分时。',
+            status: 404,
+            requestId: 'req-empty',
+            retryable: false,
+            fields: [],
+          },
+        }
+      }
+      return { ok: true, data: series(symbol), requestId: null }
+    })
+
+    await detail.load('600519.SH')
+    expect(detail.failure.value).toBeNull()
+    expect(detail.bars.value).toEqual([])
+
+    detail.retry()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls).toBe(2)
+    expect(detail.bars.value).toHaveLength(2)
+  })
+
   it('clears data and aborts the current request on reset', async () => {
     const pending = deferred<ApiResult<IntradaySeries>>()
     const signals: AbortSignal[] = []

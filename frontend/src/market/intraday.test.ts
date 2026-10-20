@@ -10,6 +10,7 @@ import {
   formatShares,
   INTRADAY_CONTINUOUS_SLOTS,
   INTRADAY_TIME_TICKS,
+  intradayPriceAxis,
   intradaySummary,
   intradaySlotIndex,
   latestTradingDayBars,
@@ -177,6 +178,15 @@ describe('intraday presentation helpers', () => {
     expect(axis?.boundPct).toBeCloseTo(0.0324, 6)
     expect((axis!.top / 100 - 1) * 100).toBeCloseTo((1 - axis!.bottom / 100) * 100, 10)
     expect(symmetricIntradayRange(null, ['100'])).toBeNull()
+  })
+
+  it('falls back to a price interval when the previous close is unavailable', () => {
+    expect(symmetricIntradayRange(null, ['100', '102'])).toBeNull()
+    const axis = intradayPriceAxis(null, ['100', '102'])
+
+    expect(axis?.center).toBe(101)
+    expect(axis?.top).toBeGreaterThan(102)
+    expect(axis?.bottom).toBeLessThan(100)
   })
 
   it('accepts only finite positive prices for drawing and percentage calculations', () => {

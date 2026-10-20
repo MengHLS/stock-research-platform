@@ -46,7 +46,13 @@ export function useLatestIntraday(loadIntraday: LoadIntraday) {
     if (token !== requestToken || next.signal.aborted) return
     loading.value = false
     if (!result.ok) {
-      if (result.failure.kind !== 'aborted') failure.value = result.failure
+      if (result.failure.code === 'MARKET_DATA_UNAVAILABLE') {
+        bars.value = []
+        tradingDay.value = null
+        loadedSymbol = symbol
+      } else if (result.failure.kind !== 'aborted') {
+        failure.value = result.failure
+      }
       return
     }
     const latest = latestTradingDayBars(result.data.bars)
