@@ -47,6 +47,16 @@ AUCTION = json.dumps(
     }
 )
 
+PROFILE = json.dumps(
+    {
+        "data": {
+            "f57": "600519",
+            "f58": "贵州茅台",
+            "f127": "白酒Ⅱ",
+        }
+    }
+)
+
 
 @pytest.fixture
 def market_client(database_url):
@@ -55,6 +65,8 @@ def market_client(database_url):
             return httpx.Response(200, text=KLINE)
         if request.url.path == "/api/qt/stock/trends2/get":
             return httpx.Response(200, text=AUCTION)
+        if request.url.path == "/api/qt/stock/get":
+            return httpx.Response(200, text=PROFILE)
         raise AssertionError(f"unexpected upstream call: {request.url}")
 
     settings = Settings(
@@ -96,6 +108,20 @@ def test_auction_route_exposes_curve_and_match(market_client):
     assert body["matched_price"] == "1311.57"
     assert body["matched_volume_shares"] == "33500"
     assert [snapshot["price"] for snapshot in body["snapshots"]] == ["1312.97", "1310.30"]
+
+
+def test_stock_profile_route_exposes_industry_and_provider(market_client):
+    body = market_client.get(
+        "/api/v1/market/stock-profile",
+        params={"symbol": "600519.SH"},
+    ).json()
+
+    assert body == {
+        "symbol": "600519.SH",
+        "name": "贵州茅台",
+        "industry": "白酒Ⅱ",
+        "provider": "eastmoney",
+    }
 
 
 @pytest.mark.parametrize(

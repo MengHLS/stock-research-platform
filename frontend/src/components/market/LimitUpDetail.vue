@@ -15,6 +15,10 @@ const props = defineProps<{
   stockLoading: boolean
   stockFailure: string | null
   stockRequestId?: string | null
+  industry: string | null
+  industryProvider: string | null
+  industryLoading: boolean
+  industryFailure: string | null
 }>()
 const emit = defineEmits<{
   'save-note': [note: string]
@@ -74,6 +78,14 @@ function saveNote() {
       <div>
         <dt>题材</dt>
         <dd>{{ row.sector }}</dd>
+      </div>
+      <div>
+        <dt>行业</dt>
+        <dd :title="industryFailure ?? undefined">
+          {{ industryLoading ? '读取中…' : (industry ?? '未获取') }}
+        </dd>
+        <small v-if="!industryLoading && industryProvider">东方财富</small>
+        <small v-else-if="!industryLoading && industryFailure">获取失败</small>
       </div>
       <div>
         <dt>板数</dt>
@@ -239,7 +251,7 @@ function saveNote() {
 
 .facts {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 9px;
   margin: 0;
 }

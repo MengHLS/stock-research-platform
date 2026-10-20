@@ -127,6 +127,20 @@ class QuoteRead(BaseModel):
     phase: Phase
 
 
+class StockProfileRead(BaseModel):
+    """Static stock identity used by review detail views."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str = Field(description="Canonical symbol, suffix form")
+    name: str
+    industry: str | None = Field(
+        default=None,
+        description="Provider industry classification; null means explicitly unavailable.",
+    )
+    provider: Literal["eastmoney"] = "eastmoney"
+
+
 class SourceStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

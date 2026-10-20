@@ -42,6 +42,7 @@ PROVIDER = "eastmoney"
 # deliberate: the documented page host first, then the historical host.
 TRENDS_HOSTS = ("push2.eastmoney.com", "push2his.eastmoney.com")
 TRENDS_PATH = "/api/qt/stock/trends2/get"
+PROFILE_PATH = "/api/qt/stock/get"
 HEADERS = {"Referer": "https://quote.eastmoney.com/", "Accept": "*/*"}
 # Public web token the Eastmoney page itself uses; not a user credential.
 PUBLIC_UT = "fa5fd1943c7b386f172d6893dbfba10b"
@@ -81,6 +82,14 @@ class AuctionResult:
         self.pre_close = pre_close
 
 
+class StockProfile:
+    __slots__ = ("name", "industry")
+
+    def __init__(self, name: str, industry: str | None) -> None:
+        self.name = name
+        self.industry = industry
+
+
 def _trends_params(symbol: Symbol) -> dict[str, str]:
     return {
         "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
@@ -94,11 +103,19 @@ def _trends_params(symbol: Symbol) -> dict[str, str]:
     }
 
 
+def _profile_params(symbol: Symbol) -> dict[str, str]:
+    return {
+        "fields": "f57,f58,f127",
+        "ut": PUBLIC_UT,
+        "secid": symbol.eastmoney_secid,
+    }
+
+
 class EastmoneySource:
     def __init__(self, client: UpstreamClient) -> None:
         self._client = client
 
-    def _fetch_trends(self, symbol: Symbol):
+    def _fetch(self, path: str, params: dict[str, str]):
         """Try each reviewed host in order; the first usable payload wins.
 
         A host that is unreachable (DNS fake-ip, TLS renegotiation refusal, 5xx)
@@ -111,8 +128,8 @@ class EastmoneySource:
             try:
                 return self._client.get_json(
                     provider=PROVIDER,
-                    url=f"https://{host}{TRENDS_PATH}",
-                    params=_trends_params(symbol),
+                    url=f"https://{host}{path}",
+                    params=params,
                     headers=HEADERS,
                 )
             except DomainError as error:
@@ -121,6 +138,9 @@ class EastmoneySource:
                 last = error
         assert last is not None
         raise last
+
+    def _fetch_trends(self, symbol: Symbol):
+        return self._fetch(TRENDS_PATH, _trends_params(symbol))
 
     def opening_auction(self, symbol: Symbol) -> AuctionResult:
         payload = self._fetch_trends(symbol)
@@ -174,6 +194,28 @@ class EastmoneySource:
             return AuctionResult(snapshots, None, None, None, None, pre_close)
         moment, price, volume_shares, amount = matched
         return AuctionResult(snapshots, moment, price, volume_shares, amount, pre_close)
+
+    def stock_profile(self, symbol: Symbol) -> StockProfile:
+        payload = self._fetch(PROFILE_PATH, _profile_params(symbol))
+        if not isinstance(payload, dict):
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+        if "data" not in payload:
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+        data = payload["data"]
+        if data is None:
+            raise DomainError("MARKET_DATA_UNAVAILABLE")
+        if not isinstance(data, dict):
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+        code = data.get("f57")
+        name = data.get("f58")
+        if not isinstance(code, str) or code != symbol.code:
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+        if not isinstance(name, str) or not name.strip():
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+        industry = data.get("f127")
+        if industry is not None and not isinstance(industry, str):
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+        return StockProfile(name=name.strip(), industry=(industry or "").strip() or None)
 
 
 def _row(raw):

@@ -63,6 +63,10 @@ def trends_payload(rows, pre_close="1312.97"):
     return json.dumps({"data": {"preClose": pre_close, "trends": rows}})
 
 
+def profile_payload(*, code="600519", name="贵州茅台", industry="白酒Ⅱ"):
+    return json.dumps({"data": {"f57": code, "f58": name, "f127": industry}})
+
+
 def auction_rows(*, with_match=True, star=False):
     virtual = [
         f"2026-10-16 09:{minute:02d},1312.97,1312.97,1312.97,1312.97,0,0.00,1312.970"
@@ -450,6 +454,49 @@ def test_auction_without_snapshot_rows_is_a_clear_failure():
     with pytest.raises(DomainError) as failure:
         service.auction("600519")
     assert failure.value.code == "MARKET_DATA_UNAVAILABLE"
+
+
+def test_stock_profile_exposes_eastmoney_industry_and_caches_the_result():
+    calls = []
+
+    def profile(request):
+        calls.append(request)
+        assert request.url.params["secid"] == "1.600519"
+        assert request.url.params["fields"] == "f57,f58,f127"
+        return httpx.Response(200, text=profile_payload())
+
+    service = make_service({"/api/qt/stock/get": profile})
+    first = service.stock_profile("600519")
+    second = service.stock_profile("600519.SH")
+
+    assert first == second
+    assert first.symbol == "600519.SH"
+    assert first.name == "贵州茅台"
+    assert first.industry == "白酒Ⅱ"
+    assert first.provider == "eastmoney"
+    assert len(calls) == 1
+
+
+def test_stock_profile_keeps_a_missing_industry_explicit():
+    service = make_service(
+        {"/api/qt/stock/get": profile_payload(industry="")},
+    )
+
+    profile = service.stock_profile("600519")
+
+    assert profile.industry is None
+    assert profile.provider == "eastmoney"
+
+
+def test_stock_profile_rejects_a_provider_identity_mismatch():
+    service = make_service(
+        {"/api/qt/stock/get": profile_payload(code="000001", name="平安银行")},
+    )
+
+    with pytest.raises(DomainError) as failure:
+        service.stock_profile("600519")
+
+    assert failure.value.code == "MARKET_SOURCE_BAD_RESPONSE"
 
 
 # --- auction degradation: Eastmoney curve is unreachable ------------------

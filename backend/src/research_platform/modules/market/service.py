@@ -50,6 +50,7 @@ from .schemas import (
     QuoteRead,
     SourceStatus,
     SourceStatusList,
+    StockProfileRead,
 )
 from .sina import SinaSource
 from .symbols import parse_symbol, tencent_volume_unit
@@ -378,6 +379,21 @@ class MarketService:
             )
 
         return self._cache.get_or_create(key, self._settings.upstream.quote_cache_seconds, load)
+
+    def stock_profile(self, raw_symbol: str) -> StockProfileRead:
+        """Static identity and industry classification for a stock detail view."""
+        symbol = parse_symbol(raw_symbol)
+        key = ("stock-profile", symbol.display)
+
+        def load() -> StockProfileRead:
+            profile = self._eastmoney.stock_profile(symbol)
+            return StockProfileRead(
+                symbol=symbol.display,
+                name=profile.name,
+                industry=profile.industry,
+            )
+
+        return self._cache.get_or_create(key, self._settings.upstream.profile_cache_seconds, load)
 
     def global_overview(self, session: Session, window: int) -> GlobalMarketOverviewRead:
         """Read the application snapshot, refreshing it when it is stale.

@@ -89,6 +89,7 @@ class UpstreamConfig(BaseModel):
     max_retries: int = Field(default=1, ge=0, le=1)
     min_interval_ms: int = Field(default=200, ge=0, le=5000)
     quote_cache_seconds: int = Field(default=5, ge=0, le=300)
+    profile_cache_seconds: int = Field(default=3600, ge=0, le=24 * 3600)
     intraday_cache_seconds: int = Field(default=30, ge=0, le=3600)
     global_overview_refresh_seconds: int = Field(default=60, ge=0, le=3600)
     global_history_refresh_seconds: int = Field(default=3600, ge=0, le=7 * 24 * 3600)

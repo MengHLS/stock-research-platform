@@ -256,6 +256,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/market/stock-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Stock Profile
+         * @description 股票静态资料：名称与东方财富行业分类；无行业时显式返回 null。
+         */
+        get: operations["get_stock_profile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/market/auction": {
         parameters: {
             query?: never;
@@ -1642,6 +1662,30 @@ export interface components {
             items: components["schemas"]["SourceStatus"][];
             /** Upstream Enabled */
             upstream_enabled: boolean;
+        };
+        /**
+         * StockProfileRead
+         * @description Static stock identity used by review detail views.
+         */
+        StockProfileRead: {
+            /**
+             * Symbol
+             * @description Canonical symbol, suffix form
+             */
+            symbol: string;
+            /** Name */
+            name: string;
+            /**
+             * Industry
+             * @description Provider industry classification; null means explicitly unavailable.
+             */
+            industry?: string | null;
+            /**
+             * Provider
+             * @default eastmoney
+             * @constant
+             */
+            provider: "eastmoney";
         };
         /** ThemeCountRead */
         ThemeCountRead: {
@@ -3166,6 +3210,119 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QuoteRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_stock_profile: {
+        parameters: {
+            query: {
+                /** @description 规范形态 600519.SH；也接受 600519 / sh600519 / sh.600519 / 600519.sh */
+                symbol: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockProfileRead"];
                 };
             };
             /** @description Request cannot be processed */

@@ -28,6 +28,7 @@ from .schemas import (
     Period,
     QuoteRead,
     SourceStatusList,
+    StockProfileRead,
 )
 from .service import MarketService
 from .state_description import MarketStateDescriptionService
@@ -123,6 +124,17 @@ def get_intraday(
 def get_quote(service: ServiceDep, symbol: SymbolQuery):
     """实时快照（腾讯）：最新价、涨跌停价与行情时间；覆盖北交所与指数。"""
     return service.quote(symbol)
+
+
+@router.get(
+    "/stock-profile",
+    response_model=StockProfileRead,
+    operation_id="get_stock_profile",
+    dependencies=[Depends(require_query(frozenset({"symbol"})))],
+)
+def get_stock_profile(service: ServiceDep, symbol: SymbolQuery):
+    """股票静态资料：名称与东方财富行业分类；无行业时显式返回 null。"""
+    return service.stock_profile(symbol)
 
 
 @router.get(
