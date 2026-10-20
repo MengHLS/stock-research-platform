@@ -1509,7 +1509,7 @@ export interface components {
             market_wide_units: string;
             /**
              * Index Units
-             * @default 上证、深证、沪深300、中证500 取旧源并有金额/成交量；创业板指、科创50 取腾讯公开不复权日线，仅 OHLC，最多 160 根，早于覆盖范围保持缺失。
+             * @default 上证、深证、沪深300、中证500 取旧源并有金额/成交量；创业板指、科创50 取腾讯公开不复权日线并写入应用库，仅 OHLC，最多 160 根，早于覆盖范围保持缺失。
              */
             index_units: string;
         };

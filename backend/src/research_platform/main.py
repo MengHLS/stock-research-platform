@@ -29,6 +29,7 @@ from research_platform.modules.execution.router import router as execution_route
 from research_platform.modules.identity.router import router as identity_router
 from research_platform.modules.market.legacy_review_source import LegacyMarketReviewSource
 from research_platform.modules.market.review import MarketReviewService
+from research_platform.modules.market.review_index_store import SqlReviewIndexStore
 from research_platform.modules.market.review_public_indices import PublicReviewIndexSource
 from research_platform.modules.market.router import router as market_router
 from research_platform.modules.market.service import MarketService
@@ -75,8 +76,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.sessions = sessionmaker(engine, expire_on_commit=False)
-    # Public market data is not user-scoped and is never persisted; the service
-    # owns its own TTL cache and is closed with the API lifecycle.
+    # Quotes and minute bars stay in the service TTL cache. Public daily bars
+    # needed by historical review are persisted in the application database.
     app.state.market = MarketService(settings, upstream)
     app.state.market_state = MarketStateDescriptionService(
         FrozenMarketStateSource(settings.market_state.root) if settings.market_state else None,
@@ -88,7 +89,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         market_state_counts=app.state.market_state,
         index_supplement=PublicReviewIndexSource(
             TencentGlobalSource(upstream),
+            SqlReviewIndexStore(app.state.sessions),
             cache_seconds=settings.review.cache_seconds,
+            refresh_seconds=settings.review.index_refresh_seconds,
         ),
     )
     app.state.market_state = MarketStateDescriptionService(

@@ -199,7 +199,7 @@ class ReviewMethodologyRead(BaseModel):
     market_wide_units: str = "market_data.turnover/marginBalance 按旧源亿元口径原样输出。"
     index_units: str = (
         "上证、深证、沪深300、中证500 取旧源并有金额/成交量；创业板指、科创50 "
-        "取腾讯公开不复权日线，仅 OHLC，最多 160 根，早于覆盖范围保持缺失。"
+        "取腾讯公开不复权日线并写入应用库，仅 OHLC，最多 160 根，早于覆盖范围保持缺失。"
     )
 
 
