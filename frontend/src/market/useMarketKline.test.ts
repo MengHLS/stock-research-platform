@@ -65,6 +65,61 @@ describe('market kline request ownership', () => {
     expect(detail.series.value?.period).toBe('week')
   })
 
+  it('cancels a delayed period when switching back to already loaded data', async () => {
+    const week = deferred<ApiResult<MarketKlineSeries>>()
+    let weekSignal: AbortSignal | undefined
+    const detail = useMarketKline((symbol, period, _limit, signal) => {
+      if (period === 'week') {
+        weekSignal = signal
+        return week.promise
+      }
+      return Promise.resolve({ ok: true, data: series(symbol, period), requestId: null })
+    })
+
+    await detail.load('600519.SH', 'day', 120)
+    const weekLoad = detail.load('600519.SH', 'week', 60)
+    await detail.load('600519.SH', 'day', 120)
+
+    expect(weekSignal?.aborted).toBe(true)
+    expect(detail.loading.value).toBe(false)
+    expect(detail.series.value?.period).toBe('day')
+
+    week.resolve({ ok: true, data: series('600519.SH', 'week'), requestId: null })
+    await weekLoad
+
+    expect(detail.series.value?.period).toBe('day')
+  })
+
+  it('ignores a delayed failure from a period the user already left', async () => {
+    const week = deferred<ApiResult<MarketKlineSeries>>()
+    const detail = useMarketKline((symbol, period) => {
+      if (period === 'week') return week.promise
+      return Promise.resolve({ ok: true, data: series(symbol, period), requestId: null })
+    })
+
+    await detail.load('600519.SH', 'day', 120)
+    const weekLoad = detail.load('600519.SH', 'week', 60)
+    await detail.load('600519.SH', 'day', 120)
+
+    week.resolve({
+      ok: false,
+      failure: {
+        kind: 'network',
+        code: 'NETWORK_UNAVAILABLE',
+        message: '周线失败。',
+        status: null,
+        requestId: 'req-week',
+        retryable: true,
+        fields: [],
+      },
+    })
+    await weekLoad
+
+    expect(detail.failure.value).toBeNull()
+    expect(detail.loading.value).toBe(false)
+    expect(detail.series.value?.period).toBe('day')
+  })
+
   it('treats explicit no-data as empty and supports a forced retry', async () => {
     let calls = 0
     const detail = useMarketKline(async (symbol, period) => {

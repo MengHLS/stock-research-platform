@@ -542,6 +542,7 @@ def test_weekly_kline_marks_an_incomplete_current_week(monkeypatch):
     assert weekly.period == "week"
     assert weekly.week_in_progress is True
     assert "最后一周尚未收周" in " ".join(weekly.limits)
+    assert "未接独立交易日历" in " ".join(weekly.limits)
 
 
 def test_weekly_kline_is_complete_after_friday_close(monkeypatch):
@@ -555,6 +556,28 @@ def test_weekly_kline_is_complete_after_friday_close(monkeypatch):
 
     assert weekly.week_in_progress is False
     assert "最后一周尚未收周" not in " ".join(weekly.limits)
+
+
+def test_weekly_kline_rederives_close_state_outside_the_bar_cache(monkeypatch):
+    now = [datetime(2026, 10, 23, 14, 59, tzinfo=MARKET_TZ)]
+    monkeypatch.setattr(
+        "research_platform.modules.market.service.exchange_now",
+        lambda: now[0],
+    )
+    calls = []
+
+    def payload(request):
+        calls.append(request)
+        return httpx.Response(200, text=market_kline_payload("week"))
+
+    service = make_service({"/appstock/app/kline/kline": payload})
+    before_close = service.kline("600519", "week", 60)
+    now[0] = datetime(2026, 10, 23, 15, 1, tzinfo=MARKET_TZ)
+    after_close = service.kline("600519", "week", 60)
+
+    assert before_close.week_in_progress is True
+    assert after_close.week_in_progress is False
+    assert len(calls) == 1
 
 
 # --- auction degradation: Eastmoney curve is unreachable ------------------

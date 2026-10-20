@@ -37,7 +37,7 @@ export function useMarketKline(loadKline: LoadKline) {
     options: { force?: boolean } = {},
   ) {
     const key = `${symbol}:${period}:${limit}`
-    if (!options.force && loadedKey === key) return
+    if (!options.force && loadedKey === key && series.value) return
     controller?.abort()
     const next = new AbortController()
     controller = next
