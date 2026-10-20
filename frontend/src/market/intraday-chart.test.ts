@@ -29,9 +29,13 @@ const bars: IntradayBar[] = [
 describe('intraday chart without previous close', () => {
   it('draws a price path from the bar interval and labels the missing reference', async () => {
     const html = await renderToString(createSSRApp(IntradayChart, { bars }))
+    const pathTag = html.match(/<path[^>]*price-line[^>]*>/)?.[0] ?? ''
+    const path = pathTag.match(/d="([^"]+)"/)?.[1] ?? ''
 
-    expect(html).toContain('price-line')
+    expect(path).toMatch(/^M[\d.\s]+L[\d.\s]+/)
     expect(html).toContain('纵轴按价格区间展示；涨跌幅不可用')
     expect(html).not.toContain('无法绘制价格轴')
+    expect(html).not.toContain('axis-pct')
+    expect(html).not.toContain('previous-line')
   })
 })
