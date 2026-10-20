@@ -46,6 +46,7 @@ Agent 开始研究前先读首页并搜索主题目录；已有主题就更新�
 |---|---|---|
 | 应用库 app | 默认 `RP_DATABASE_URL` 指向本工程 SQLite；MySQL 使用 `RP_DATABASE_MYSQL__*` | 新系统业务数据，API/Worker/Alembic 共用；按运行/迁移职责最小授权 |
 | 研究源 source | `RP_SOURCE_MYSQL__*`，未配置即关闭 | 现有 MySQL/TiDB 的研究输入，必须使用数据库端专用 SELECT-only 账号；不绑定应用 ORM 或 Alembic |
+| 市场状态文件 market_state | `RP_MARKET_STATE__ROOT`，未配置即关闭 | 旧工程已验证的冻结日目录；只读校验 PASS 与 JSON 哈希，不查询数据库、不重算行情 |
 
 两套 MySQL 配置均含 HOST、PORT、DATABASE、USERNAME、PASSWORD、TLS、可选 CA_FILE、CONNECT_TIMEOUT 和 READ_TIMEOUT。PASSWORD 保持原值，由 URL.create 构造连接参数；无需手工拼接或 URL 转义。dotenv 中带 #、空格等字符的密码应加引号，容器环境变量则传原值。完整字段以 `.env.example` 和 Settings 为准。
 
@@ -80,9 +81,9 @@ db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 
 | `GET /api/v1/market/intraday` | 腾讯 | `symbol`、`period=m1|m5|m15|m30|m60`、`limit<=800`；无北交所 |
 | `GET /api/v1/market/auction` | 东财曲线 + 新浪成交 | 09:15–09:25 虚拟撮合曲线来自东财（`push2`/`push2his` 多主机轮换）；09:25 实际成交优先东财，降级时来自新浪（沪深北/科创/ETF/指数全覆盖、股数精确）。全部失败时 `degraded=true`、`snapshots=[]`，前端必须显示降级状态 |
 | `GET /api/v1/market/daily` | Tushare | `symbol`、可选 `start`/`end`（YYYY-MM-DD） |
+| `GET /api/v1/market/state/description` | 冻结市场状态 | 登录后按 `date` 读取5日/20日/60日描述；未知日期404，源未配置503，哈希不符502 |
 | `GET /api/v1/market/sources` | 本服务 | 各源是否配置；不触发外网请求 |
 | `GET /api/v1/market/session` | 本服务 | 当前时段标签，按时钟判断，不代表交易日历 |
-
 标的写法：**规范形态为后缀式 `600519.SH` / `000001.SZ` / `920982.BJ`**，返回的 `symbol` 一律是该形态；入参同时接受 `600519`、`sh600519`、`sh.600519`、`SH600519`、`600519.sh` 等变体，统一折叠为规范形态。上证指数号段（`000001`/`000010`/`000016`/`000300`/`000688`/`000852`/`000905`）与深市股票同时使用 `000xxx`，深市指数 `399001`/`399106` 也需区分，这些**必须带交易所前缀**；裸代码一律 400 `MARKET_SYMBOL_INVALID`，不做猜测。北交所（`bj` 前缀）无腾讯分钟线，返回 `MARKET_DATA_UNAVAILABLE` 而不是空数组。日内K线与日线的成交量均换算为股（`volume_shares`）；腾讯快照因股票/ETF/指数口径不一致，字段为 `volume_lots` 并附 `volume_note`。时间对外为 UTC ISO 8601，另附 `trading_day` 交易日。
 
 失败码：`MARKET_SYMBOL_INVALID`(400)、`MARKET_DATA_UNAVAILABLE`(404)、`MARKET_SOURCE_UNAVAILABLE`(503)、`MARKET_SOURCE_BAD_RESPONSE`(502)、`MARKET_SOURCE_NOT_CONFIGURED`/`MARKET_SOURCE_DISABLED`(503)、`MARKET_SOURCE_PERMISSION_DENIED`(503)、`MARKET_SOURCE_RATE_LIMITED`(429)；复盘另有 400 区间码、404 日期码及 502/503 源码。供应商原始报文、连接串与 Tushare token 不写日志、不回前端。
@@ -216,5 +217,4 @@ Windows 使用受控进程组的协作退出方式并保留进程树强停兜底
 - AUTH_NOT_CONFIGURED：身份未接入，不建临时管理员绕过。
 - Worker 无待处理项属正常；未知 handler 显式失败；租约耗尽最多三次后 LEASE_EXHAUSTED，保留记录不覆盖旧终态。
 - 清理只处理自己创建的 .scratch，确认真实路径用途；真实研究证据另有保留策略。
-
 日志不输出连接串、密码或会话令牌。磁盘、任务失败、队列等待与备份状态接入正式监控后再开放远程试用。

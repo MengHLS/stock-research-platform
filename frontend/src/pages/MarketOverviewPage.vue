@@ -9,6 +9,7 @@ import MarketIndexDetail from '../components/market/MarketIndexDetail.vue'
 import MarketIndexPanel from '../components/market/MarketIndexPanel.vue'
 import MarketLadderPanel from '../components/market/MarketLadderPanel.vue'
 import MarketReviewControls from '../components/market/MarketReviewControls.vue'
+import MarketStateDescriptionPanel from '../components/market/MarketStateDescriptionPanel.vue'
 import MarketSummaryPanel from '../components/market/MarketSummaryPanel.vue'
 import MarketThemeHeatmap from '../components/market/MarketThemeHeatmap.vue'
 import ReviewDrawer from '../components/market/ReviewDrawer.vue'
@@ -532,6 +533,7 @@ onBeforeUnmount(() => {
         />
       </template>
     </MarketSummaryPanel>
+    <MarketStateDescriptionPanel v-if="overview" :date="overview.date" />
     <section v-if="chartHistoryFailure && overview" class="banner banner--warn" role="status">
       <strong>更长周期图表暂按 {{ chartHistory.length }} 个交易日展示。</strong>
       <span>

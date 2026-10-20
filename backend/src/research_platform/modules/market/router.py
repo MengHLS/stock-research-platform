@@ -30,6 +30,8 @@ from .schemas import (
     SourceStatusList,
 )
 from .service import MarketService
+from .state_description import MarketStateDescriptionService
+from .state_description_schemas import MarketStateDescriptionRead
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
@@ -79,12 +81,20 @@ def review_service(request: Request) -> MarketReviewService:
     return request.app.state.market_review
 
 
+def market_state_service(request: Request) -> MarketStateDescriptionService:
+    return request.app.state.market_state
+
+
 ServiceDep = Annotated[MarketService, Depends(market_service)]
 ReviewServiceDep = Annotated[MarketReviewService, Depends(review_service)]
+MarketStateServiceDep = Annotated[MarketStateDescriptionService, Depends(market_state_service)]
 ActorDep = Annotated[Actor, Depends(require_actor)]
 SessionDep = Annotated[Session, Depends(session_dependency)]
 REVIEW_RESPONSES = {
     502: {"model": ErrorResponse, "description": "Historical review source has bad data"}
+}
+MARKET_STATE_RESPONSES = {
+    502: {"model": ErrorResponse, "description": "Frozen market-state data failed verification"}
 }
 
 
@@ -280,3 +290,19 @@ def get_review_limit_up(
 ):
     """认证读取指定观察日及其窗口内的涨停与断板明细。"""
     return service.limit_up(trading_day, window)
+
+
+@router.get(
+    "/state/description",
+    response_model=MarketStateDescriptionRead,
+    operation_id="get_market_state_description",
+    responses=MARKET_STATE_RESPONSES,
+    dependencies=[Depends(require_query(frozenset({"date"})))],
+)
+def get_market_state_description(
+    service: MarketStateServiceDep,
+    _actor: ActorDep,
+    trading_day: Annotated[date | None, Query(alias="date")] = None,
+):
+    """认证读取冻结事实层的多周期描述；不包含未来收益或交易建议。"""
+    return service.describe(trading_day)

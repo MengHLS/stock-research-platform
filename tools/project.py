@@ -9,6 +9,7 @@ import struct
 import subprocess
 import sys
 import zlib
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -691,6 +692,54 @@ def market_check() -> None:
     print(json.dumps(summary, ensure_ascii=False), flush=True)
 
 
+def market_state_description(
+    action: str,
+    *,
+    trade_date: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    output: str | None = None,
+) -> None:
+    """Describe or scan the configured frozen market-state delivery."""
+    from research_platform.core.config import Settings
+    from research_platform.core.errors import DomainError
+    from research_platform.modules.market.state_description import (
+        MarketStateDescriptionService,
+    )
+    from research_platform.modules.market.state_source import FrozenMarketStateSource
+
+    settings = Settings()
+    if settings.market_state is None:
+        raise SystemExit("RP_MARKET_STATE__ROOT is not configured")
+    config = settings.market_state
+    service = MarketStateDescriptionService(FrozenMarketStateSource(config.root), config)
+    try:
+        if action == "describe":
+            payload = service.describe(
+                date.fromisoformat(trade_date) if trade_date else None
+            ).model_dump(mode="json")
+        elif action == "scan":
+            payload = service.scan(
+                date.fromisoformat(start) if start else None,
+                date.fromisoformat(end) if end else None,
+            )
+        else:
+            raise SystemExit(f"unknown market-state action: {action}")
+    except DomainError as error:
+        raise SystemExit(f"{error.code}: {error.message}") from None
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    if output:
+        target = Path(output)
+        if not target.is_absolute():
+            target = ROOT / target
+        target = target.resolve()
+        if not target.is_relative_to(SCRATCH.resolve()):
+            raise SystemExit("market-state output must be inside .scratch")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -705,6 +754,7 @@ def main() -> None:
             "db-config",
             "db-check",
             "market-check",
+            "market-state",
             "prototype",
             "identity",
             "icons",
@@ -718,6 +768,16 @@ def main() -> None:
         help="prototype: list navigation, dump shape JSON, or copy the HTML",
     )
     parser.add_argument("--to", metavar="PATH", help="prototype copy: destination path")
+    parser.add_argument(
+        "--market-state-action",
+        choices=["describe", "scan"],
+        default="describe",
+        help="market-state: emit one date or scan label distribution",
+    )
+    parser.add_argument("--date", help="market-state describe: YYYY-MM-DD")
+    parser.add_argument("--start", help="market-state scan: YYYY-MM-DD")
+    parser.add_argument("--end", help="market-state scan: YYYY-MM-DD")
+    parser.add_argument("--output", help="market-state: optional .scratch JSON path")
     parser.add_argument(
         "--identity-action",
         dest="identity_action",
@@ -755,6 +815,14 @@ def main() -> None:
         run(sys.executable, "-m", "research_platform.modules.execution.worker")
     elif args.task == "market-check":
         market_check()
+    elif args.task == "market-state":
+        market_state_description(
+            args.market_state_action,
+            trade_date=args.date,
+            start=args.start,
+            end=args.end,
+            output=args.output,
+        )
     elif args.task == "prototype":
         prototype(args.action, args.to)
     elif args.task == "icons":

@@ -43,7 +43,7 @@ job 是基础设施工作项，不是研究 Run。当前诊断通过不代表策
 | identity | 会话、用户、权限 | 自建注册/登录；密码重置、SSO 待实现 |
 | catalog | 模式目录、定义与证据、关注 | 私人目录样板 |
 | execution | 作业调度与 Worker | 有界诊断样板 |
-| market / datasets | 行情与冻结数据集 | market 行情读取已实现；冻结数据集待实现 |
+| market / datasets | 行情、冻结数据集与市场状态描述 | market 行情读取与只读市场状态描述已实现；冻结数据集待实现 |
 | research / discovery | 实验配置、运行溯源、结果与评审；知识笔记外置 | 待实现 |
 | strategies / backtests | 版本化策略、撮合与规范指标 | 待适配，对拍后迁移 |
 | journal | 私人决策、偏差与笔记 | 待实现 |

@@ -476,6 +476,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/market/state/description": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Market State Description
+         * @description 认证读取冻结事实层的多周期描述；不包含未来收益或交易建议。
+         */
+        get: operations["get_market_state_description"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1039,6 +1059,134 @@ export interface components {
              * @enum {string}
              */
             phase: "opening_auction" | "pre_open" | "continuous" | "lunch_break" | "closed";
+        };
+        /** MarketStateConflictRead */
+        MarketStateConflictRead: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /** MarketStateDescriptionRead */
+        MarketStateDescriptionRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Universe Id */
+            universe_id: string;
+            /** Feature Version */
+            feature_version: string;
+            /**
+             * Description Version
+             * @default market-description-v1
+             * @constant
+             */
+            description_version: "market-description-v1";
+            /** Build Version */
+            build_version: string;
+            /**
+             * Usage
+             * @default descriptive_not_predictive
+             * @constant
+             */
+            usage: "descriptive_not_predictive";
+            /** Certification Level */
+            certification_level: string;
+            /** Coverage Status */
+            coverage_status: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Summary */
+            summary: string;
+            /** Layers */
+            layers: components["schemas"]["MarketStateLayerRead"][];
+            facts: components["schemas"]["MarketStateFactsRead"];
+            /** Conflicts */
+            conflicts: components["schemas"]["MarketStateConflictRead"][];
+            /** Issues */
+            issues: components["schemas"]["MarketStateIssueRead"][];
+        };
+        /** MarketStateFactsRead */
+        MarketStateFactsRead: {
+            /** Csi300 Return 1D Pct */
+            csi300_return_1d_pct?: string | null;
+            /** Advancer Ratio Pct */
+            advancer_ratio_pct?: string | null;
+            /** Median Return Pct */
+            median_return_pct?: string | null;
+            /** Above Ma20 Ratio Pct */
+            above_ma20_ratio_pct?: string | null;
+            /** Above Ma60 Ratio Pct */
+            above_ma60_ratio_pct?: string | null;
+            /** Amount Ratio 20 */
+            amount_ratio_20?: string | null;
+            /** Amount Rolling 120 Midrank */
+            amount_rolling_120_midrank?: string | null;
+            /** Csi300 Volatility 20 Pct */
+            csi300_volatility_20_pct?: string | null;
+            /** Csi300 Drawdown 60 Pct */
+            csi300_drawdown_60_pct?: string | null;
+            /** Limit Up Close Count */
+            limit_up_close_count?: number | null;
+            /** Limit Down Close Count */
+            limit_down_close_count?: number | null;
+            /** Broken Board Rate Pct */
+            broken_board_rate_pct?: string | null;
+            /** Yesterday Limit Up Feedback Avg Return Pct */
+            yesterday_limit_up_feedback_avg_return_pct?: string | null;
+            /** Yesterday Limit Up Feedback Win Rate Pct */
+            yesterday_limit_up_feedback_win_rate_pct?: string | null;
+        };
+        /** MarketStateIssueRead */
+        MarketStateIssueRead: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /** MarketStateLayerMetricRead */
+        MarketStateLayerMetricRead: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value?: string | null;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "pct" | "pp";
+        };
+        /** MarketStateLayerRead */
+        MarketStateLayerRead: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "short_5d" | "trend_20d" | "structure_60d";
+            /** Label */
+            label: string;
+            /** Window Days */
+            window_days: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "unavailable";
+            /**
+             * Classification
+             * @enum {string}
+             */
+            classification: "improving" | "weakening" | "mixed" | "strong" | "weak" | "conflicted" | "unavailable";
+            /** Base Date */
+            base_date?: string | null;
+            /** Metrics */
+            metrics: components["schemas"]["MarketStateLayerMetricRead"][];
+            /** Note */
+            note: string;
         };
         /** MaxBoardStockRead */
         MaxBoardStockRead: {
@@ -4366,6 +4514,127 @@ export interface operations {
                 };
             };
             /** @description Historical review source has bad data */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_market_state_description: {
+        parameters: {
+            query?: {
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketStateDescriptionRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Frozen market-state data failed verification */
             502: {
                 headers: {
                     [name: string]: unknown;

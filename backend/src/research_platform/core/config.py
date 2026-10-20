@@ -116,6 +116,15 @@ class ReviewConfig(BaseModel):
     lookback_days: int = Field(default=400, ge=121, le=3650)
 
 
+class MarketStateConfig(BaseModel):
+    """Read-only access to a verified, frozen market-state delivery directory."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    root: Path
+    cache_seconds: int = Field(default=60, ge=0, le=3600)
+
+
 class TushareConfig(BaseModel):
     """Tushare token stays a secret: never logged, never returned to a client."""
 
@@ -191,6 +200,7 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     upstream: UpstreamConfig = UpstreamConfig()
     review: ReviewConfig = ReviewConfig()
+    market_state: MarketStateConfig | None = None
     tushare: TushareConfig | None = None
     object_storage: ObjectStorageConfig | None = None
     auth: AuthConfig | None = None

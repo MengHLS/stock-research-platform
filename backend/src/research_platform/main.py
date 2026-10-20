@@ -31,6 +31,8 @@ from research_platform.modules.market.legacy_review_source import LegacyMarketRe
 from research_platform.modules.market.review import MarketReviewService
 from research_platform.modules.market.router import router as market_router
 from research_platform.modules.market.service import MarketService
+from research_platform.modules.market.state_description import MarketStateDescriptionService
+from research_platform.modules.market.state_source import FrozenMarketStateSource
 
 SessionDep = Annotated[Session, Depends(session_dependency)]
 
@@ -77,6 +79,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.market_review = MarketReviewService(
         LegacyMarketReviewSource(source_engine) if source_engine is not None else None,
         settings.review,
+    )
+    app.state.market_state = MarketStateDescriptionService(
+        FrozenMarketStateSource(settings.market_state.root) if settings.market_state else None,
+        settings.market_state,
     )
     install_error_handlers(app)
     # Added last so it is outermost: ids exist before any handler or route runs.
