@@ -17,6 +17,8 @@ from research_platform.main import create_app
 from research_platform.modules.identity.dependencies import Actor, require_actor
 from research_platform.modules.market.legacy_review_source import LegacyMarketReviewSource
 from research_platform.modules.market.review import (
+    LEGACY_INDEX_SYMBOLS,
+    PUBLIC_INDEX_SYMBOLS,
     IndexBar,
     LimitUpRecord,
     MarketReviewService,
@@ -188,6 +190,45 @@ class FakeReviewSource:
         return rows
 
 
+class FakeIndexSupplement:
+    def __init__(
+        self,
+        days: list[date] | None = None,
+        *,
+        fail_symbols: set[str] | None = None,
+    ) -> None:
+        self.days = list(days or [])
+        self.fail_symbols = fail_symbols or set()
+        self.calls: list[tuple[date, date, list[str]]] = []
+
+    def index_rows(
+        self,
+        start: date,
+        end: date,
+        symbols: list[str],
+    ) -> dict[str, list[IndexBar]]:
+        self.calls.append((start, end, list(symbols)))
+        rows: dict[str, list[IndexBar]] = {}
+        for symbol in symbols:
+            if symbol in self.fail_symbols:
+                raise DomainError("MARKET_SOURCE_UNAVAILABLE")
+            base = Decimal("4000") if symbol == "399006.SZ" else Decimal("1000")
+            rows[symbol] = [
+                IndexBar(
+                    trading_day=day,
+                    symbol=symbol,
+                    open=base + Decimal(offset * 10) - 5,
+                    high=base + Decimal(offset * 10) + 10,
+                    low=base + Decimal(offset * 10) - 10,
+                    close=base + Decimal(offset * 10),
+                    amount_source=None,
+                    volume_source=None,
+                )
+                for offset, day in enumerate(day for day in self.days if start <= day <= end)
+            ]
+        return rows
+
+
 class FakeMarketStateCountSource:
     def __init__(
         self,
@@ -249,12 +290,18 @@ def service(
     source: FakeReviewSource | None = None,
     *,
     market_state_counts: FakeMarketStateCountSource | None = None,
+    index_supplement: FakeIndexSupplement | None | object = ...,
     **config,
 ) -> MarketReviewService:
+    review_source = source or FakeReviewSource()
+    supplement = (
+        FakeIndexSupplement(review_source.days) if index_supplement is ... else index_supplement
+    )
     return MarketReviewService(
-        source or FakeReviewSource(),
+        review_source,
         ReviewConfig(**config),
         market_state_counts=market_state_counts or FakeMarketStateCountSource(),
+        index_supplement=supplement,
     )
 
 
@@ -729,10 +776,94 @@ def test_single_index_window_still_prefetches_complete_ma_history():
     source.days = [date(2026, 9, 1) + timedelta(days=index) for index in range(20)]
     result = service(source).indices(source.days[-1], 1)
 
-    for item in result.indices:
+    for item in result.indices[:4]:
         target = item.bars[0]
         assert target.ma5 == Decimal("3170.00")
         assert target.ma20 == Decimal("3095.00")
+    chinext, star50 = result.indices[4:]
+    assert chinext.bars[0].ma5 == Decimal("4170.00")
+    assert chinext.bars[0].ma20 == Decimal("4095.00")
+    assert star50.bars[0].ma5 == Decimal("1170.00")
+    assert star50.bars[0].ma20 == Decimal("1095.00")
+
+
+def test_review_merges_four_legacy_indices_with_two_public_indices_in_order():
+    source = FakeReviewSource()
+    supplement = FakeIndexSupplement(source.days)
+    review = service(source, index_supplement=supplement)
+
+    result = review.indices(date(2026, 9, 18), 4)
+    overview = review.overview(date(2026, 9, 18), 4)
+
+    assert [item.symbol for item in result.indices] == [
+        *LEGACY_INDEX_SYMBOLS,
+        *PUBLIC_INDEX_SYMBOLS,
+    ]
+    assert [item.symbol for item in overview.indices] == [
+        *LEGACY_INDEX_SYMBOLS,
+        *PUBLIC_INDEX_SYMBOLS,
+    ]
+    assert [call[2] for call in supplement.calls] == [["399006.SZ"], ["000688.SH"]] * 2
+    chinext = result.indices[4]
+    star50 = result.indices[5]
+    assert (chinext.symbol, chinext.name, chinext.bars[-1].close) == (
+        "399006.SZ",
+        "创业板指",
+        Decimal("4030"),
+    )
+    assert (star50.symbol, star50.name, star50.bars[-1].close) == (
+        "000688.SH",
+        "科创50",
+        Decimal("1030"),
+    )
+    assert chinext.bars[-1].amount_source is None
+    assert overview.indices[-2].close == Decimal("4010")
+    assert overview.indices[-1].change_pct == Decimal("1.00")
+
+
+def test_120_day_window_has_complete_ma_inputs_for_public_indices():
+    source = FakeReviewSource([])
+    source.days = [date(2026, 1, 1) + timedelta(days=index) for index in range(139)]
+    supplement = FakeIndexSupplement(source.days)
+
+    result = service(source, index_supplement=supplement).indices(source.days[-1], 120)
+
+    assert result.window_actual == 120
+    for item in result.indices[-2:]:
+        assert len(item.bars) == 120
+        assert item.missing_days == 0
+        assert item.bars[0].ma20 is not None
+        assert item.bars[-1].ma20 is not None
+    assert supplement.calls[0][:2] == (source.days[0], source.days[-1])
+
+
+def test_public_index_history_older_than_coverage_stays_missing():
+    source = FakeReviewSource([])
+    source.days = [date(2026, 1, 5), date(2026, 1, 6)]
+    supplement = FakeIndexSupplement([date(2026, 3, 2), date(2026, 3, 3)])
+
+    result = service(source, index_supplement=supplement).indices(date(2026, 1, 6), 2)
+    overview = service(source, index_supplement=supplement).overview(date(2026, 1, 6), 2)
+
+    for item in result.indices[-2:]:
+        assert item.coverage.status == "missing"
+        assert item.missing_days == 2
+        assert all(bar.close is None for bar in item.bars)
+    for item in overview.indices[-2:]:
+        assert item.coverage.status == "missing"
+        assert item.close is None
+
+
+def test_one_public_index_failure_does_not_hide_the_other_or_legacy_indices():
+    source = FakeReviewSource()
+    supplement = FakeIndexSupplement(source.days, fail_symbols={"399006.SZ"})
+
+    result = service(source, index_supplement=supplement).indices(date(2026, 9, 18), 4)
+
+    assert result.indices[0].coverage.status == "available"
+    assert result.indices[4].coverage.status == "missing"
+    assert result.indices[5].coverage.status == "available"
+    assert result.indices[5].bars[-1].close == Decimal("1030")
 
 
 def test_range_and_window_limits_fail_with_stable_codes():
@@ -900,6 +1031,7 @@ def _review_client(database_url, source: FakeReviewSource, user_id: int = 1):
         source,
         settings.review,
         market_state_counts=FakeMarketStateCountSource(),
+        index_supplement=FakeIndexSupplement(source.days),
     )
     return TestClient(app)
 
@@ -998,6 +1130,8 @@ def test_review_api_dates_and_indices_contract(database_url):
         "399001.SZ",
         "000300.SH",
         "000905.SH",
+        "399006.SZ",
+        "000688.SH",
     ]
 
 

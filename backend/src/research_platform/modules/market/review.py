@@ -57,8 +57,12 @@ INDEX_NAMES = {
     "399001.SZ": "深证成指",
     "000300.SH": "沪深300",
     "000905.SH": "中证500",
+    "399006.SZ": "创业板指",
+    "000688.SH": "科创50",
 }
 INDEX_SYMBOLS = tuple(INDEX_NAMES)
+LEGACY_INDEX_SYMBOLS = ("000001.SH", "399001.SZ", "000300.SH", "000905.SH")
+PUBLIC_INDEX_SYMBOLS = ("399006.SZ", "000688.SH")
 HIGH_BOARD_MIN = 6
 MARKET_STATE_COUNT_ISSUES = {
     "SOURCE_NOT_CONFIGURED": (
@@ -186,6 +190,15 @@ class ReviewSource(Protocol):
     def index_rows(self, start: date, end: date, symbols: list[str]) -> list[IndexBar]: ...
 
 
+class ReviewIndexSupplement(Protocol):
+    def index_rows(
+        self,
+        start: date,
+        end: date,
+        symbols: list[str],
+    ) -> dict[str, list[IndexBar]]: ...
+
+
 class MarketStateLimitCountSource(Protocol):
     def limit_counts(
         self,
@@ -223,11 +236,13 @@ class MarketReviewService:
         config: ReviewConfig,
         *,
         market_state_counts: MarketStateLimitCountSource | None = None,
+        index_supplement: ReviewIndexSupplement | None = None,
         cache: TTLCache | None = None,
     ) -> None:
         self._source = source
         self._config = config
         self._market_state_counts = market_state_counts
+        self._index_supplement = index_supplement
         self._cache = cache if cache is not None else TTLCache()
 
     @property
@@ -576,8 +591,10 @@ class MarketReviewService:
             )
             for day in history_dates
         ]
-        index_bars = self._index_rows(
-            source.index_rows(previous_day or requested_day, requested_day, list(INDEX_SYMBOLS))
+        index_bars = self._review_index_rows(
+            source,
+            previous_day or requested_day,
+            requested_day,
         )
         overview_indices: list[OverviewIndexRead] = []
         for symbol, name in INDEX_NAMES.items():
@@ -648,7 +665,7 @@ class MarketReviewService:
         # MA20 needs the current day plus 19 prior trading days, even when the
         # caller only requests one visible bar.
         query_start = calendar_days[max(0, first_history_index - 19)]
-        rows = self._index_rows(source.index_rows(query_start, requested_day, list(INDEX_SYMBOLS)))
+        rows = self._review_index_rows(source, query_start, requested_day)
         series: list[ReviewIndexSeriesRead] = []
         for symbol, name in INDEX_NAMES.items():
             by_day = {bar.trading_day: bar for bar in rows[symbol]}
@@ -990,6 +1007,29 @@ class MarketReviewService:
             symbol: [grouped[symbol][day] for day in sorted(grouped[symbol])]
             for symbol in INDEX_SYMBOLS
         }
+
+    def _review_index_rows(
+        self,
+        source: ReviewSource,
+        start: date,
+        end: date,
+    ) -> dict[str, list[IndexBar]]:
+        rows = list(source.index_rows(start, end, list(LEGACY_INDEX_SYMBOLS)))
+        if self._index_supplement is None:
+            return self._index_rows(rows)
+        for symbol in PUBLIC_INDEX_SYMBOLS:
+            try:
+                supplement_rows = self._index_supplement.index_rows(start, end, [symbol])
+            except DomainError as error:
+                log_event(
+                    "market.review.index_supplement_degraded",
+                    level=logging.WARNING,
+                    symbol=symbol,
+                    error_code=error.code,
+                )
+                continue
+            rows.extend(supplement_rows.get(symbol, []))
+        return self._index_rows(rows)
 
     def _stock_bars(self, rows: list[StockBar], expected_symbol: str) -> dict[date, StockBar]:
         result: dict[date, StockBar] = {}

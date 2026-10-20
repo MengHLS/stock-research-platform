@@ -29,10 +29,12 @@ from research_platform.modules.execution.router import router as execution_route
 from research_platform.modules.identity.router import router as identity_router
 from research_platform.modules.market.legacy_review_source import LegacyMarketReviewSource
 from research_platform.modules.market.review import MarketReviewService
+from research_platform.modules.market.review_public_indices import PublicReviewIndexSource
 from research_platform.modules.market.router import router as market_router
 from research_platform.modules.market.service import MarketService
 from research_platform.modules.market.state_description import MarketStateDescriptionService
 from research_platform.modules.market.state_source import FrozenMarketStateSource
+from research_platform.modules.market.tencent_global import TencentGlobalSource
 
 SessionDep = Annotated[Session, Depends(session_dependency)]
 
@@ -84,6 +86,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         LegacyMarketReviewSource(source_engine) if source_engine is not None else None,
         settings.review,
         market_state_counts=app.state.market_state,
+        index_supplement=PublicReviewIndexSource(
+            TencentGlobalSource(upstream),
+            cache_seconds=settings.review.cache_seconds,
+        ),
     )
     app.state.market_state = MarketStateDescriptionService(
         FrozenMarketStateSource(settings.market_state.root) if settings.market_state else None,

@@ -425,7 +425,7 @@ export interface paths {
         };
         /**
          * Get Review Indices
-         * @description 认证读取四指数日线及 MA5/MA20，均线缺口保持 null。
+         * @description 认证读取六指数日线及 MA5/MA20，均线缺口保持 null。
          */
         get: operations["get_market_review_indices"];
         put?: never;
@@ -1509,7 +1509,7 @@ export interface components {
             market_wide_units: string;
             /**
              * Index Units
-             * @default index_daily.amount/volume 按旧源原生字段输出，不换单位。
+             * @default 上证、深证、沪深300、中证500 取旧源并有金额/成交量；创业板指、科创50 取腾讯公开不复权日线，仅 OHLC，最多 160 根，早于覆盖范围保持缺失。
              */
             index_units: string;
         };

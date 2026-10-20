@@ -197,7 +197,10 @@ class ReviewMethodologyRead(BaseModel):
     )
     completeness: str = "available 仅表示源中存在行，不宣称数据已完整采集。"
     market_wide_units: str = "market_data.turnover/marginBalance 按旧源亿元口径原样输出。"
-    index_units: str = "index_daily.amount/volume 按旧源原生字段输出，不换单位。"
+    index_units: str = (
+        "上证、深证、沪深300、中证500 取旧源并有金额/成交量；创业板指、科创50 "
+        "取腾讯公开不复权日线，仅 OHLC，最多 160 根，早于覆盖范围保持缺失。"
+    )
 
 
 class ReviewOverviewRead(BaseModel):
