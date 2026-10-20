@@ -145,7 +145,14 @@ jobs:
           set -e
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
           cd "$DEPLOY_PATH"
-          git fetch --prune origin dev
+          # 国内到 GitHub 偶发抖动会让 fetch 以 128 退出（Failure when receiving data
+          # from the peer）；重试几次再放弃，避免一次网络抖动中断整次发布。
+          for attempt in 1 2 3; do
+            if git fetch --prune origin dev; then break; fi
+            echo "git fetch 失败（第 \$attempt 次），5 秒后重试"
+            sleep 5
+          done
+          git rev-parse --verify origin/dev >/dev/null
           git reset --hard origin/dev
           bash deploy/deploy.sh --tag "$TAG"
           EOF
