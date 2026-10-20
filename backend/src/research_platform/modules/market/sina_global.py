@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from research_platform.core.errors import DomainError
+from research_platform.core.logging import log_event
 from research_platform.core.upstream import UpstreamClient
 
 from .global_types import (
@@ -53,12 +56,27 @@ class SinaGlobalSource:
         )
         records = _records(text)
         result: dict[str, GlobalQuote] = {}
+        last_error: DomainError | None = None
         for instrument in GLOBAL_INSTRUMENTS:
             raw = records.get(instrument.sina_symbol)
             if not raw:
                 continue
-            result[instrument.key] = _quote(instrument, raw)
+            try:
+                result[instrument.key] = _quote(instrument, raw)
+            except DomainError as error:
+                last_error = error
+                log_event(
+                    "market.global_quote_instrument_degraded",
+                    level=logging.ERROR
+                    if error.code == "MARKET_SOURCE_BAD_RESPONSE"
+                    else logging.WARNING,
+                    provider=PROVIDER,
+                    instrument=instrument.key,
+                    reason=error.code,
+                )
         if not result:
+            if last_error is not None and last_error.code == "MARKET_SOURCE_BAD_RESPONSE":
+                raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
             raise DomainError("MARKET_DATA_UNAVAILABLE")
         return result
 
@@ -122,7 +140,7 @@ def _quote(instrument: GlobalInstrument, raw: str) -> GlobalQuote:
 def _us_quote(fields: list[str]) -> GlobalQuote:
     if len(fields) < 27:
         raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
-    price = finite_decimal(fields[1])
+    price = _positive_price(fields[1])
     previous_close = optional_decimal(fields[26])
     change = optional_decimal(fields[4])
     if previous_close is None and change is not None:
@@ -143,7 +161,7 @@ def _us_quote(fields: list[str]) -> GlobalQuote:
 def _regional_index_quote(fields: list[str], offset_hours: int) -> GlobalQuote:
     if len(fields) < 12:
         raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
-    price = finite_decimal(fields[1])
+    price = _positive_price(fields[1])
     change = optional_decimal(fields[2])
     return GlobalQuote(
         price=price,
@@ -165,7 +183,7 @@ def _regional_index_quote(fields: list[str], offset_hours: int) -> GlobalQuote:
 def _china_quote(fields: list[str]) -> GlobalQuote:
     if len(fields) < 32:
         raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
-    price = finite_decimal(fields[3])
+    price = _positive_price(fields[3])
     previous_close = optional_decimal(fields[2])
     return GlobalQuote(
         price=price,
@@ -187,7 +205,7 @@ def _china_quote(fields: list[str]) -> GlobalQuote:
 def _futures_quote(fields: list[str]) -> GlobalQuote:
     if len(fields) < 14:
         raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
-    price = finite_decimal(fields[0])
+    price = _positive_price(fields[0])
     previous_close = optional_decimal(fields[7])
     return GlobalQuote(
         price=price,
@@ -212,6 +230,13 @@ def _local_datetime(value: str, offset_hours: int, fmt: str) -> datetime | None:
     except ValueError:
         raise DomainError("MARKET_SOURCE_BAD_RESPONSE") from None
     return local.replace(tzinfo=timezone(timedelta(hours=offset_hours)))
+
+
+def _positive_price(value: object) -> Decimal:
+    price = optional_decimal(value)
+    if price is None or price <= 0:
+        raise DomainError("MARKET_DATA_UNAVAILABLE")
+    return price
 
 
 def _jsonp_rows(text: str) -> list[dict]:
@@ -243,19 +268,26 @@ def _history_rows(
     result: list[GlobalBar] = []
     previous_close = None
     previous_day = None
-    for row in rows:
+    invalid_rows = 0
+    for row in rows[-(window + 1) :]:
         try:
             trading_day = parse_day(row[day_key], "%Y-%m-%d")
             open_price = finite_decimal(row[open_key])
             high = finite_decimal(row[high_key])
             low = finite_decimal(row[low_key])
             close = finite_decimal(row[close_key])
-        except KeyError:
-            raise DomainError("MARKET_SOURCE_BAD_RESPONSE") from None
+        except (DomainError, KeyError):
+            invalid_rows += 1
+            previous_close = None
+            continue
         if previous_day is not None and trading_day <= previous_day:
-            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+            invalid_rows += 1
+            previous_close = None
+            continue
         if high < low or not (low <= open_price <= high and low <= close <= high):
-            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
+            invalid_rows += 1
+            previous_close = None
+            continue
         result.append(
             GlobalBar(
                 trading_day=trading_day,
@@ -269,5 +301,7 @@ def _history_rows(
         previous_close = close
         previous_day = trading_day
     if not result:
+        if invalid_rows:
+            raise DomainError("MARKET_SOURCE_BAD_RESPONSE")
         raise DomainError("MARKET_DATA_UNAVAILABLE")
     return result[-window:]

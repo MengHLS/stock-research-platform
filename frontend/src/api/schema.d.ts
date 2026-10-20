@@ -724,7 +724,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "quote_missing" | "history_missing" | "history_stale";
+            code: "quote_missing" | "quote_stale" | "history_missing" | "history_stale";
             /** Scope */
             scope: string;
             /** Message */
@@ -751,6 +751,8 @@ export interface components {
             unit: string;
             /** Precision */
             precision: number;
+            /** Provider */
+            provider?: string | null;
             /**
              * Assessment
              * @enum {string}

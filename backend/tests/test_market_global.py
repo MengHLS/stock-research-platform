@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -162,11 +163,14 @@ def test_sina_global_source_parses_batch_quotes_across_venues():
         "Gold",
         "0",
     ]
+    bad_futures_fields = list(futures_fields)
+    bad_futures_fields[0] = ""
     records = {
         "gb_ixic": ",".join(us_fields),
         "b_KOSPI": ",".join(kospi_fields),
         "sz399006": ",".join(china_fields),
         "hf_GC": ",".join(futures_fields),
+        "hf_CL": ",".join(bad_futures_fields),
     }
     body = "".join(f'var hq_str_{key}="{value}";\n' for key, value in records.items())
 
@@ -189,9 +193,10 @@ def test_sina_global_source_parses_batch_quotes_across_venues():
     assert quotes["nasdaq"].previous_close == Decimal("26140.0340")
     assert quotes["nasdaq"].quote_time == datetime(2026, 10, 19, 16, 19, 33, tzinfo=UTC)
     assert quotes["kospi"].change_pct == Decimal("1.76")
-    assert quotes["kospi"].quote_time == datetime(2026, 10, 19, 5, 27, tzinfo=UTC)
+    assert quotes["kospi"].quote_time == datetime(2026, 10, 19, 6, 27, tzinfo=UTC)
     assert quotes["chinext"].change_pct < 0
     assert quotes["gold"].open == Decimal("4185.000")
+    assert "wti" not in quotes
     client.close()
 
 
@@ -234,6 +239,32 @@ def test_yahoo_history_skips_incomplete_daily_rows():
 
     assert [bar.trading_day for bar in bars] == [date(2026, 10, 15), date(2026, 10, 16)]
     assert bars[-1].change_pct.quantize(Decimal("0.0001")) == Decimal("0.9901")
+    client.close()
+
+
+def test_sina_history_ignores_bad_rows_outside_and_inside_the_window():
+    rows = [
+        {"d": "2010-01-04", "o": "1", "h": "0", "l": "2", "c": "1"},
+        {"d": "2026-10-14", "o": "99", "h": "101", "l": "98", "c": "100"},
+        {"d": "2026-10-15", "o": "100", "h": "102", "l": "99", "c": "101"},
+        {"d": "2026-10-16", "o": "101", "h": "100", "l": "99", "c": "100"},
+        {"d": "2026-10-19", "o": "101", "h": "103", "l": "100", "c": "102"},
+    ]
+    body = "/* guard */\nvar t=(" + json.dumps(rows) + ");\n"
+    settings = Settings(
+        environment="test",
+        database_url="sqlite://",
+        _env_file=None,
+        upstream={"min_interval_ms": 0},
+    )
+    client = UpstreamClient(
+        settings,
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, text=body)),
+    )
+    bars = SinaGlobalSource(client).history(GLOBAL_INSTRUMENTS[0], 2)
+
+    assert [bar.trading_day for bar in bars] == [date(2026, 10, 15), date(2026, 10, 19)]
+    assert bars[-1].change_pct is None
     client.close()
 
 
@@ -340,12 +371,20 @@ def test_yahoo_japan_history_parses_embedded_nikkei_rows():
     client.close()
 
 
-def test_global_source_falls_back_when_first_quote_provider_fails():
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        "MARKET_DATA_UNAVAILABLE",
+        "MARKET_SOURCE_RATE_LIMITED",
+        "MARKET_SOURCE_UNAVAILABLE",
+    ],
+)
+def test_global_source_falls_back_when_first_quote_provider_fails(error_code):
     class FailingSource:
         provider = "eastmoney"
 
         def quotes(self):
-            raise DomainError("MARKET_SOURCE_UNAVAILABLE")
+            raise DomainError(error_code)
 
     class WorkingSource:
         provider = "sina"
@@ -387,11 +426,136 @@ def test_global_source_falls_back_when_first_quote_provider_fails():
     client.close()
 
 
+def test_global_source_keeps_the_first_quote_source_value_without_fanout():
+    class FirstSource:
+        provider = "sina"
+
+        def quotes(self):
+            return {
+                "nasdaq": GlobalQuote(
+                    price=Decimal("100"),
+                    previous_close=Decimal("99"),
+                    open=None,
+                    high=None,
+                    low=None,
+                    change=Decimal("1"),
+                    change_pct=Decimal("1.01"),
+                    quote_time=None,
+                    provider="sina",
+                )
+            }
+
+    class SlowSecondSource:
+        provider = "yahoo"
+        calls = 0
+
+        def quotes(self):
+            self.calls += 1
+            return {
+                "nasdaq": GlobalQuote(
+                    price=Decimal("999"),
+                    previous_close=Decimal("998"),
+                    open=None,
+                    high=None,
+                    low=None,
+                    change=Decimal("1"),
+                    change_pct=Decimal("0.1"),
+                    quote_time=None,
+                    provider="yahoo",
+                )
+            }
+
+    settings = Settings(
+        environment="test",
+        database_url="sqlite://",
+        _env_file=None,
+        upstream={"min_interval_ms": 0},
+    )
+    client = UpstreamClient(
+        settings,
+        transport=httpx.MockTransport(lambda request: None),
+    )
+    second = SlowSecondSource()
+    source = GlobalMarketSource(
+        client,
+        quote_sources=(FirstSource(), second),
+        history_sources={},
+    )
+    quotes = source.quotes()
+
+    assert quotes["nasdaq"].price == Decimal("100")
+    assert source.last_quote_provider == "sina"
+    assert second.calls == 0
+    client.close()
+
+
+def test_global_history_circuit_breaker_skips_a_rate_limited_provider():
+    class FailingHistory:
+        provider = "sina"
+        calls = 0
+
+        def history(self, instrument, window):
+            self.calls += 1
+            raise DomainError("MARKET_SOURCE_RATE_LIMITED")
+
+    class WorkingHistory:
+        provider = "yahoo"
+        calls = 0
+
+        def history(self, instrument, window):
+            self.calls += 1
+            return [
+                GlobalBar(
+                    trading_day=date(2026, 10, 19),
+                    open=Decimal("99"),
+                    high=Decimal("101"),
+                    low=Decimal("98"),
+                    close=Decimal("100"),
+                    change_pct=Decimal("1"),
+                )
+            ]
+
+    settings = Settings(
+        environment="test",
+        database_url="sqlite://",
+        _env_file=None,
+        upstream={"min_interval_ms": 0},
+    )
+    client = UpstreamClient(
+        settings,
+        transport=httpx.MockTransport(lambda request: None),
+    )
+    failing = FailingHistory()
+    working = WorkingHistory()
+    source = GlobalMarketSource(
+        client,
+        quote_sources=(),
+        history_sources={"sina": failing, "yahoo": working},
+    )
+    instrument = GLOBAL_INSTRUMENTS[0]
+
+    first = source.history(instrument, 2)
+    second = source.history(instrument, 2)
+
+    assert first[-1].close == Decimal("100")
+    assert second[-1].close == Decimal("100")
+    assert failing.calls == 1
+    assert working.calls == 2
+    client.close()
+
+
 class FakeGlobalSource:
-    def __init__(self, fail_history_keys: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        fail_history_keys: set[str] | None = None,
+        missing_quote_keys: set[str] | None = None,
+        history_delay: float = 0,
+    ) -> None:
         self.quote_calls = 0
         self.fail_quotes = False
         self.fail_history_keys = fail_history_keys or set()
+        self.missing_quote_keys = missing_quote_keys or set()
+        self.history_delay = history_delay
 
     def quotes(self) -> dict[str, GlobalQuote]:
         self.quote_calls += 1
@@ -408,9 +572,15 @@ class FakeGlobalSource:
             quote_time=datetime(2026, 10, 19, 8, 0, tzinfo=UTC),
             provider="sina",
         )
-        return {instrument.key: quote for instrument in GLOBAL_INSTRUMENTS}
+        return {
+            instrument.key: quote
+            for instrument in GLOBAL_INSTRUMENTS
+            if instrument.key not in self.missing_quote_keys
+        }
 
     def history(self, instrument, window: int) -> list[GlobalBar]:
+        if self.history_delay:
+            time.sleep(self.history_delay)
         if instrument.key in self.fail_history_keys:
             raise DomainError("MARKET_SOURCE_UNAVAILABLE")
         return [
@@ -514,7 +684,43 @@ def test_global_overview_persists_and_falls_back_to_the_last_successful_snapshot
     assert bars == 10
 
 
-def test_global_overview_marks_history_stale_when_refresh_lags_quotes(database_url):
+def test_global_overview_does_not_mark_scheduled_history_as_stale(database_url):
+    settings = Settings(
+        environment="test",
+        database_url=database_url,
+        _env_file=None,
+        upstream={
+            "min_interval_ms": 0,
+            "global_overview_refresh_seconds": 0,
+            "global_history_refresh_seconds": 3600,
+        },
+    )
+    source = FakeGlobalSource()
+    app = create_app(settings)
+    app.state.market = MarketService(
+        settings,
+        UpstreamClient(settings, transport=httpx.MockTransport(lambda request: None)),
+        global_source=source,
+    )
+    app.dependency_overrides[require_actor] = lambda: Actor(user_id=1)
+    client = TestClient(app)
+    with client:
+        first = client.get("/api/v1/market/global/overview", params={"window": 20})
+        second = client.get("/api/v1/market/global/overview", params={"window": 20})
+
+    assert first.status_code == 200
+    assert first.json()["stale"] is False
+    assert second.status_code == 200
+    body = second.json()
+    by_key = {item["key"]: item for item in body["items"]}
+    assert body["stale"] is False
+    assert by_key["dow"]["assessment"] == "available"
+    assert by_key["nasdaq"]["assessment"] == "available"
+    assert by_key["nasdaq"]["issues"] == []
+    assert by_key["nasdaq"]["provider"] == "sina"
+
+
+def test_global_overview_marks_failed_history_partial_without_global_stale(database_url):
     settings = Settings(
         environment="test",
         database_url=database_url,
@@ -540,41 +746,118 @@ def test_global_overview_marks_history_stale_when_refresh_lags_quotes(database_u
         second = client.get("/api/v1/market/global/overview", params={"window": 20})
 
     assert first.status_code == 200
-    assert first.json()["stale"] is False
     assert second.status_code == 200
     body = second.json()
     by_key = {item["key"]: item for item in body["items"]}
-    assert body["stale"] is True
+    assert body["stale"] is False
     assert by_key["dow"]["assessment"] == "partial"
     assert {issue["code"] for issue in by_key["dow"]["issues"]} == {"history_stale"}
     assert by_key["nasdaq"]["assessment"] == "available"
 
-    read_settings = Settings(
+
+def test_global_overview_marks_quote_stale_when_provider_drops_one(database_url):
+    settings = Settings(
         environment="test",
         database_url=database_url,
         _env_file=None,
         upstream={
             "min_interval_ms": 0,
-            "global_overview_refresh_seconds": 3600,
+            "global_overview_refresh_seconds": 0,
             "global_history_refresh_seconds": 3600,
         },
     )
-    read_app = create_app(read_settings)
-    read_app.state.market = MarketService(
-        read_settings,
-        UpstreamClient(read_settings, transport=httpx.MockTransport(lambda request: None)),
+    source = FakeGlobalSource()
+    app = create_app(settings)
+    app.state.market = MarketService(
+        settings,
+        UpstreamClient(settings, transport=httpx.MockTransport(lambda request: None)),
         global_source=source,
     )
-    read_app.dependency_overrides[require_actor] = lambda: Actor(user_id=1)
-    with TestClient(read_app) as read_client:
-        fast = read_client.get("/api/v1/market/global/overview", params={"window": 20})
+    app.dependency_overrides[require_actor] = lambda: Actor(user_id=1)
+    client = TestClient(app)
+    with client:
+        first = client.get("/api/v1/market/global/overview", params={"window": 20})
+        source.missing_quote_keys.add("dow")
+        second = client.get("/api/v1/market/global/overview", params={"window": 20})
 
-    assert fast.status_code == 200
-    assert fast.json()["stale"] is True
-    fast_by_key = {item["key"]: item for item in fast.json()["items"]}
-    assert fast_by_key["dow"]["assessment"] == "partial"
-    assert {issue["code"] for issue in fast_by_key["dow"]["issues"]} == {"history_stale"}
-    assert source.quote_calls == 2
+    assert first.status_code == 200
+    assert second.status_code == 200
+    body = second.json()
+    by_key = {item["key"]: item for item in body["items"]}
+    assert body["stale"] is False
+    assert by_key["dow"]["assessment"] == "partial"
+    assert {issue["code"] for issue in by_key["dow"]["issues"]} == {"quote_stale"}
+    assert by_key["nasdaq"]["assessment"] == "available"
+
+
+def test_global_overview_caps_slow_history_sync(database_url):
+    settings = Settings(
+        environment="test",
+        database_url=database_url,
+        _env_file=None,
+        upstream={
+            "min_interval_ms": 0,
+            "global_overview_refresh_seconds": 0,
+            "global_history_refresh_seconds": 0,
+            "global_history_workers": 1,
+            "global_history_sync_timeout_seconds": 1,
+        },
+    )
+    source = FakeGlobalSource(history_delay=0.2)
+    app = create_app(settings)
+    app.state.market = MarketService(
+        settings,
+        UpstreamClient(settings, transport=httpx.MockTransport(lambda request: None)),
+        global_source=source,
+    )
+    app.dependency_overrides[require_actor] = lambda: Actor(user_id=1)
+    client = TestClient(app)
+    started = time.monotonic()
+    with client:
+        response = client.get("/api/v1/market/global/overview", params={"window": 20})
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    assert elapsed < 1.8
+    body = response.json()
+    assert sum(len(item["bars"]) for item in body["items"]) < 10
+
+
+def test_global_overview_returns_existing_snapshot_when_refresh_lock_is_held(database_url):
+    settings = Settings(
+        environment="test",
+        database_url=database_url,
+        _env_file=None,
+        upstream={
+            "min_interval_ms": 0,
+            "global_overview_refresh_seconds": 0,
+            "global_history_refresh_seconds": 3600,
+        },
+    )
+    app = create_app(settings)
+    source = FakeGlobalSource()
+    app.state.market = MarketService(
+        settings,
+        UpstreamClient(settings, transport=httpx.MockTransport(lambda request: None)),
+        global_source=source,
+    )
+    app.dependency_overrides[require_actor] = lambda: Actor(user_id=1)
+    client = TestClient(app)
+    with client:
+        first = client.get("/api/v1/market/global/overview", params={"window": 20})
+        service = app.state.market
+        assert service._global_refresh_lock.acquire(blocking=False)
+        try:
+            started = time.monotonic()
+            second = client.get("/api/v1/market/global/overview", params={"window": 20})
+            elapsed = time.monotonic() - started
+        finally:
+            service._global_refresh_lock.release()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["stale"] is True
+    assert elapsed < 0.5
 
 
 @pytest.mark.parametrize(
