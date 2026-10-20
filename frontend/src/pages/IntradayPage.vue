@@ -193,7 +193,7 @@ const chartSubtitle = computed(() => {
     return `${selectedCode.value} · 1 分钟线 · ${formatShanghaiTime(latestBar.value?.start)}`
   }
   return `${selectedCode.value} · ${chartBars.value.length || klineSeries.value?.total || 0} 根${
-    klineSeries.value?.week_in_progress ? ' · 本周未完结' : ''
+    klineSeries.value?.week_in_progress ? ' · 按交易所时钟估计本周未完结' : ''
   }`
 })
 const chartTag = computed(() => {

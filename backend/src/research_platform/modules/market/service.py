@@ -185,7 +185,7 @@ class MarketService:
                 "法定节假日提前收周时可能延后至周五 15:00。"
             )
         if week_in_progress:
-            limits.append("最后一周尚未收周，周 bar 会随交易日更新。")
+            limits.append("按交易所时钟估计最后一周尚未收周，周 bar 会随交易日更新。")
         return MarketKlineSeriesRead(
             symbol=symbol.display,
             period=period,

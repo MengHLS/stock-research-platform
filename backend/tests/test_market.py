@@ -541,7 +541,7 @@ def test_weekly_kline_marks_an_incomplete_current_week(monkeypatch):
 
     assert weekly.period == "week"
     assert weekly.week_in_progress is True
-    assert "最后一周尚未收周" in " ".join(weekly.limits)
+    assert "按交易所时钟估计最后一周尚未收周" in " ".join(weekly.limits)
     assert "未接独立交易日历" in " ".join(weekly.limits)
 
 
@@ -555,7 +555,7 @@ def test_weekly_kline_is_complete_after_friday_close(monkeypatch):
     weekly = service.kline("600519", "week", 60)
 
     assert weekly.week_in_progress is False
-    assert "最后一周尚未收周" not in " ".join(weekly.limits)
+    assert "按交易所时钟估计最后一周尚未收周" not in " ".join(weekly.limits)
 
 
 def test_weekly_kline_rederives_close_state_outside_the_bar_cache(monkeypatch):
