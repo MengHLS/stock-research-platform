@@ -75,6 +75,30 @@ describe('stock detail request ownership', () => {
     expect(detail.stockLoading.value).toBe(false)
   })
 
+  it('publishes series while the industry request is still pending', async () => {
+    const stock = deferred<ApiResult<ReviewStockSeries>>()
+    const industry = deferred<ApiResult<StockProfile>>()
+    const detail = useStockDetail(
+      () => stock.promise,
+      () => industry.promise,
+    )
+
+    const load = detail.load(row(), 60)
+    stock.resolve({ ok: true, data: series('600519.SH'), requestId: null })
+    await flush()
+
+    expect(detail.stockSeries.value?.symbol).toBe('600519.SH')
+    expect(detail.stockLoading.value).toBe(false)
+    expect(detail.profileLoading.value).toBe(true)
+    expect(detail.profile.value).toBeNull()
+
+    industry.resolve({ ok: true, data: profile('600519.SH'), requestId: null })
+    await load
+
+    expect(detail.profile.value?.industry).toBe('白酒Ⅱ')
+    expect(detail.profileLoading.value).toBe(false)
+  })
+
   it('does not let an old stock profile overwrite the latest selection', async () => {
     const first = deferred<ApiResult<StockProfile>>()
     const second = deferred<ApiResult<StockProfile>>()
