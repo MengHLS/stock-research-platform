@@ -120,9 +120,7 @@ onUnmounted(() => controller?.abort())
 
     <section class="panel">
       <h3>下一步</h3>
-      <p>
-        按原型继续补齐涨停明细、情绪周期、策略与版本、数据集和决策日志。页面在设计就绪前不显示示例数据。
-      </p>
+      <p>按原型继续补齐策略与版本、数据集和决策日志。页面在设计就绪前不显示示例数据。</p>
     </section>
   </div>
 </template>

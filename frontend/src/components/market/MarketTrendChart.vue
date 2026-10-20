@@ -15,11 +15,12 @@ import {
 const props = defineProps<{
   history: ReviewHistoryRow[]
   selectedDate: string
+  chartHeight?: number
 }>()
 const emit = defineEmits<{ select: [date: string] }>()
 
 const { chartHost, width, revealX, tooltipPosition } = useChartViewport(480, 760)
-const height = 360
+const height = props.chartHeight ?? 360
 const plotLeft = 46
 const plotRight = 20
 const plotTop = 38
@@ -135,6 +136,7 @@ function selectActive(index = activeIndex.value) {
   <div ref="chartHost" class="chart-wrap">
     <svg
       class="trend-chart"
+      :style="{ height: `${height}px` }"
       :viewBox="`0 0 ${width} ${height}`"
       role="img"
       aria-label="每日最高连板趋势；方向键可逐日查看，回车在图表内查看当天"

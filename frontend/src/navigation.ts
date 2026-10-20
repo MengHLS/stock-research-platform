@@ -55,7 +55,7 @@ export const navGroups: NavGroup[] = [
         id: 'sentiment',
         name: '情绪周期',
         icon: 'activity',
-        implemented: false,
+        implemented: true,
       },
       {
         path: '/market/intraday',

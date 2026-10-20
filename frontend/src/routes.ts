@@ -63,7 +63,12 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('./pages/GlobalMarketsPage.vue'),
     meta: { title: '全球市场', subtitle: '跨市场指数、半导体与商品' },
   },
-  planned('/market/sentiment', '情绪周期', '等待情绪指标计算模块。'),
+  {
+    path: '/market/sentiment',
+    name: 'market-sentiment',
+    component: () => import('./pages/MarketSentimentPage.vue'),
+    meta: { title: '情绪周期', subtitle: '情绪评分、连板高度与龙头梯队' },
+  },
   {
     path: '/market/intraday',
     name: 'intraday',
