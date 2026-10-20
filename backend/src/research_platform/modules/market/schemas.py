@@ -156,7 +156,7 @@ GlobalMarketAssessment = Literal["available", "partial", "missing"]
 class GlobalMarketIssueRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    code: Literal["quote_missing", "history_missing", "history_stale"]
+    code: Literal["quote_missing", "quote_stale", "history_missing", "history_stale"]
     scope: str
     message: str
 
@@ -196,6 +196,7 @@ class GlobalMarketItemRead(BaseModel):
     currency: str
     unit: str
     precision: int = Field(ge=0, le=4)
+    provider: str | None = None
     assessment: GlobalMarketAssessment
     quote: GlobalMarketQuoteRead | None = None
     bars: list[GlobalMarketBarRead] = Field(default_factory=list)

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -391,7 +393,17 @@ class MarketService:
         if self._global_is_fresh(last_synced):
             return self._read_global_snapshot(session, window, stale=False)
 
-        with self._global_refresh_lock:
+        if not self._global_refresh_lock.acquire(blocking=False):
+            session.rollback()
+            last_synced = self._global_last_synced(session)
+            if last_synced is None:
+                raise DomainError("MARKET_SOURCE_UNAVAILABLE")
+            return self._read_global_snapshot(
+                session,
+                window,
+                stale=not self._global_is_fresh(last_synced),
+            )
+        try:
             last_synced = self._global_last_synced(session)
             if self._global_is_fresh(last_synced):
                 return self._read_global_snapshot(session, window, stale=False)
@@ -413,16 +425,17 @@ class MarketService:
             return self._read_global_snapshot(
                 session,
                 window,
-                stale=bool(history_failures),
+                stale=False,
                 history_failures=history_failures,
             )
+        finally:
+            self._global_refresh_lock.release()
 
     def _refresh_global_snapshot(self, session: Session) -> set[str]:
         quotes = self._global.quotes()
         if not quotes:
             raise DomainError("MARKET_DATA_UNAVAILABLE")
         fetched_at = utc_now()
-        history_failures: set[str] = set()
 
         for instrument in GLOBAL_INSTRUMENTS:
             quote = quotes.get(instrument.key)
@@ -446,46 +459,99 @@ class MarketService:
                 row.quote_time = _naive_utc(quote.quote_time)
                 row.provider = quote.provider
                 row.fetched_at = fetched_at
-
-            if not self._global_history_needs_refresh(session, instrument.key):
-                continue
-            try:
-                bars = self._global.history(instrument, _GLOBAL_HISTORY_WINDOW)
-            except DomainError as error:
-                log_event(
-                    "market.global_history_degraded",
-                    level=(
-                        logging.ERROR if error.code in _FORMAT_BREAKAGE_CODES else logging.WARNING
-                    ),
-                    provider=getattr(self._global, "last_history_providers", {}).get(
-                        instrument.key, "global"
-                    ),
-                    instrument=instrument.key,
-                    reason=error.code,
-                )
-                history_failures.add(instrument.key)
-                continue
-            for bar in bars:
-                row = session.get(GlobalMarketDailyBar, (instrument.key, bar.trading_day))
-                if row is None:
-                    row = GlobalMarketDailyBar(
-                        instrument_key=instrument.key,
-                        trading_day=bar.trading_day,
-                        open=bar.open,
-                        high=bar.high,
-                        low=bar.low,
-                        close=bar.close,
-                        fetched_at=fetched_at,
-                    )
-                    session.add(row)
-                row.open = bar.open
-                row.high = bar.high
-                row.low = bar.low
-                row.close = bar.close
-                row.change_pct = bar.change_pct
-                row.fetched_at = fetched_at
+        # Persist quotes before the slower history fan-out. Concurrent readers can
+        # use a fresh quote snapshot even if some history providers time out.
         session.commit()
+
+        refresh_instruments = [
+            instrument
+            for instrument in GLOBAL_INSTRUMENTS
+            if self._global_history_needs_refresh(session, instrument.key)
+        ]
+        if not refresh_instruments:
+            return set()
+
+        history_failures: set[str] = set()
+        workers = min(
+            self._settings.upstream.global_history_workers,
+            len(refresh_instruments),
+        )
+        executor = ThreadPoolExecutor(
+            max_workers=workers,
+            thread_name_prefix="global-history",
+        )
+        futures = {
+            executor.submit(self._load_global_history, instrument): instrument
+            for instrument in refresh_instruments
+        }
+        try:
+            try:
+                for future in as_completed(
+                    futures,
+                    timeout=self._settings.upstream.global_history_sync_timeout_seconds,
+                ):
+                    instrument = futures[future]
+                    try:
+                        bars = future.result()
+                    except DomainError as error:
+                        self._log_global_history_failure(instrument, error.code)
+                        history_failures.add(instrument.key)
+                        continue
+                    self._store_global_bars(session, instrument.key, bars, fetched_at)
+            except FuturesTimeoutError:
+                for future, instrument in futures.items():
+                    if future.done():
+                        continue
+                    history_failures.add(instrument.key)
+                    self._log_global_history_failure(
+                        instrument,
+                        "GLOBAL_HISTORY_SYNC_BUDGET_EXCEEDED",
+                    )
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+            session.commit()
         return history_failures
+
+    def _load_global_history(self, instrument):
+        return self._global.history(instrument, _GLOBAL_HISTORY_WINDOW)
+
+    def _store_global_bars(
+        self,
+        session: Session,
+        instrument_key: str,
+        bars,
+        fetched_at: datetime,
+    ) -> None:
+        for bar in bars:
+            row = session.get(GlobalMarketDailyBar, (instrument_key, bar.trading_day))
+            if row is None:
+                row = GlobalMarketDailyBar(
+                    instrument_key=instrument_key,
+                    trading_day=bar.trading_day,
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    fetched_at=fetched_at,
+                )
+                session.add(row)
+            row.open = bar.open
+            row.high = bar.high
+            row.low = bar.low
+            row.close = bar.close
+            row.change_pct = bar.change_pct
+            row.fetched_at = fetched_at
+
+    def _log_global_history_failure(self, instrument, reason: str) -> None:
+        log_event(
+            "market.global_history_degraded",
+            level=logging.ERROR if reason in _FORMAT_BREAKAGE_CODES else logging.WARNING,
+            provider=getattr(self._global, "last_history_providers", {}).get(
+                instrument.key, "global"
+            ),
+            instrument=instrument.key,
+            reason=reason,
+        )
 
     def _read_global_snapshot(
         self,
@@ -509,7 +575,10 @@ class MarketService:
             bars_by_key.setdefault(row.instrument_key, []).append(row)
 
         items: list[GlobalMarketItemRead] = []
-        has_stale_history = False
+        latest_fetched = max(
+            (row.fetched_at for row in snapshots.values()),
+            default=None,
+        )
         for instrument in GLOBAL_INSTRUMENTS:
             snapshot = snapshots.get(instrument.key)
             issues: list[GlobalMarketIssueRead] = []
@@ -530,11 +599,20 @@ class MarketService:
                         message="数据库中尚无该标的的日线快照。",
                     )
                 )
-            history_is_stale = instrument.key in history_failures or (
+            quote_is_stale = (
                 snapshot is not None
-                and bool(saved_bars)
-                and saved_bars[-1].fetched_at < snapshot.fetched_at
+                and latest_fetched is not None
+                and snapshot.fetched_at < latest_fetched
             )
+            if quote_is_stale:
+                issues.append(
+                    GlobalMarketIssueRead(
+                        code="quote_stale",
+                        scope=instrument.key,
+                        message="本次刷新未返回该标的，当前价格来自较早快照。",
+                    )
+                )
+            history_is_stale = instrument.key in history_failures
             if snapshot is not None and saved_bars and history_is_stale:
                 issues.append(
                     GlobalMarketIssueRead(
@@ -543,8 +621,7 @@ class MarketService:
                         message="报价已更新，但日线仍为较早快照。",
                     )
                 )
-                has_stale_history = True
-            if snapshot is not None and saved_bars and not history_is_stale:
+            if snapshot is not None and saved_bars and not (quote_is_stale or history_is_stale):
                 assessment = "available"
             elif snapshot is not None or saved_bars:
                 assessment = "partial"
@@ -560,6 +637,7 @@ class MarketService:
                     currency=instrument.currency,
                     unit=instrument.unit,
                     precision=instrument.precision,
+                    provider=snapshot.provider if snapshot is not None else None,
                     assessment=assessment,
                     quote=(
                         GlobalMarketQuoteRead(
@@ -606,12 +684,12 @@ class MarketService:
             provider=provider,
             as_of=max(quote_times) if quote_times else None,
             last_synced_at=_aware_utc(max(fetched_times) if fetched_times else None),
-            stale=stale or has_stale_history,
+            stale=stale,
             window_requested=window,
             items=items,
             methodology=(
-                "优先读取应用库最近成功快照；报价优先新浪批量行情，失败时依次尝试雅虎与东方财富。"
-                "日线按标的采用腾讯、新浪、雅虎、Naver 或 Yahoo Japan，均保存供应商原始价格；"
+                "优先读取应用库最近成功快照；报价先取新浪批量行情，失败时回退东方财富，最后才逐个尝试雅虎。"
+                "日线按标的候选序列并发刷新并受同步预算约束，均保存供应商原始价格；"
                 "不复权、不补缺失日。中韩半导体使用 513310 ETF 作为可交易代理。"
             ),
         )
