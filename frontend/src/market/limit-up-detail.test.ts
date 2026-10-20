@@ -34,6 +34,11 @@ function props(overrides: Record<string, unknown> = {}) {
     industryLoading: false,
     industryFailure: null,
     industryRequestId: null,
+    intradayBars: [],
+    intradayTradingDay: null,
+    intradayLoading: false,
+    intradayFailure: null,
+    intradayRequestId: null,
     ...overrides,
   }
 }
@@ -64,5 +69,13 @@ describe('limit-up stock detail industry', () => {
     expect(html).toContain('行业来源暂不可用')
     expect(html).toContain('请求编号 req-industry')
     expect(html).toContain('重试行业')
+  })
+
+  it('offers daily and latest-intraday chart modes in the same area', async () => {
+    const html = await renderToString(createSSRApp(LimitUpDetail, props()))
+
+    expect(html).toContain('个股走势')
+    expect(html).toContain('日 K')
+    expect(html).toContain('最近分时')
   })
 })

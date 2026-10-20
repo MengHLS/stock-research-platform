@@ -5,6 +5,7 @@ import LimitUpDetail from './LimitUpDetail.vue'
 import { api, callApi } from '../../api/client'
 import { isAuthNotConfigured, type ApiFailure } from '../../api/errors'
 import type { LimitUpReviewRow } from '../../market/review'
+import { useLatestIntraday } from '../../market/useLatestIntraday'
 import { useStockDetail } from '../../market/useStockDetail'
 
 const props = defineProps<{
@@ -56,6 +57,25 @@ const {
     ),
 )
 
+const {
+  bars: intradayBars,
+  tradingDay: intradayTradingDay,
+  loading: intradayLoading,
+  failure: intradayFailure,
+  load: loadIntraday,
+  retry: retryIntraday,
+  reset: resetIntraday,
+} = useLatestIntraday(async (symbol, signal) =>
+  callApi(
+    (requestSignal) =>
+      api.GET('/api/v1/market/intraday', {
+        params: { query: { symbol, period: 'm1', limit: 800 } },
+        signal: requestSignal,
+      }),
+    { access: 'read', signal },
+  ),
+)
+
 const sameSector = computed(() => {
   const row = props.row
   return props.peerRows.filter(
@@ -75,6 +95,7 @@ function failureText(failure: ApiFailure): string {
 watch(
   () => [props.row.symbol, props.row.date, props.windowMax] as const,
   () => {
+    resetIntraday()
     void load(props.row, props.windowMax ?? 60)
   },
   { immediate: true },
@@ -82,7 +103,12 @@ watch(
 
 onBeforeUnmount(() => {
   clear()
+  resetIntraday()
 })
+
+function requestIntraday() {
+  void loadIntraday(props.row.symbol)
+}
 </script>
 
 <template>
@@ -99,9 +125,16 @@ onBeforeUnmount(() => {
     :industry-loading="profileLoading"
     :industry-failure="profileFailure ? failureText(profileFailure) : null"
     :industry-request-id="profileFailure?.requestId"
+    :intraday-bars="intradayBars"
+    :intraday-trading-day="intradayTradingDay"
+    :intraday-loading="intradayLoading"
+    :intraday-failure="intradayFailure ? failureText(intradayFailure) : null"
+    :intraday-request-id="intradayFailure?.requestId"
     @save-note="emit('save-note', $event)"
     @select="emit('select', $event)"
     @retry-stock="retrySeries"
     @retry-industry="retryProfile"
+    @request-intraday="requestIntraday"
+    @retry-intraday="retryIntraday"
   />
 </template>

@@ -2,7 +2,9 @@
 import { computed, ref, watch } from 'vue'
 
 import AppIcon from '../AppIcon'
+import IntradayChart from './IntradayChart.vue'
 import StockDailyKline from './StockDailyKline.vue'
+import type { IntradayBar } from '../../market/intraday'
 import type { LimitUpReviewRow, ReviewStockSeries } from '../../market/review'
 import { buildCandleData, compareClass, formatSignedPercent } from '../../market/review'
 import { limitUpBoardLabel, limitUpSealLabel, limitUpStatusLabel } from '../../market/limit-up'
@@ -20,16 +22,24 @@ const props = defineProps<{
   industryLoading: boolean
   industryFailure: string | null
   industryRequestId?: string | null
+  intradayBars: IntradayBar[]
+  intradayTradingDay: string | null
+  intradayLoading: boolean
+  intradayFailure: string | null
+  intradayRequestId?: string | null
 }>()
 const emit = defineEmits<{
   'save-note': [note: string]
   select: [row: LimitUpReviewRow]
   'retry-stock': []
   'retry-industry': []
+  'request-intraday': []
+  'retry-intraday': []
 }>()
 
 const draft = ref(props.note)
 const savedMessage = ref('')
+const chartMode = ref<'daily' | 'intraday'>('daily')
 let savedSnapshot: { key: string; note: string } | null = null
 const currentRowKey = () => `${props.row.date}|${props.row.symbol}|${props.row.status}`
 const hasCandles = computed(() =>
@@ -51,6 +61,18 @@ watch(
     }
   },
 )
+
+watch(
+  () => [props.row.symbol, props.row.date],
+  () => {
+    chartMode.value = 'daily'
+  },
+)
+
+function chooseChart(mode: 'daily' | 'intraday') {
+  chartMode.value = mode
+  if (mode === 'intraday') emit('request-intraday')
+}
 
 function saveNote() {
   const next = draft.value.trim()
@@ -139,25 +161,66 @@ function saveNote() {
         <section class="chart-section">
           <div class="section-title">
             <div>
-              <h3>个股日 K</h3>
-              <p>按数据源价格展示，复权口径未确认</p>
+              <h3>个股走势</h3>
+              <p v-if="chartMode === 'daily'">日 K · 按数据源价格展示，复权口径未确认</p>
+              <p v-else>最近分时 · {{ intradayTradingDay ?? '读取最近交易日' }} · 1 分钟</p>
             </div>
-            <span v-if="stockSeries">{{ stockSeries.window_actual }} 个交易日</span>
+            <div class="chart-controls">
+              <span v-if="chartMode === 'daily' && stockSeries">
+                {{ stockSeries.window_actual }} 个交易日
+              </span>
+              <div class="chart-switch" role="group" aria-label="个股图表周期">
+                <button
+                  type="button"
+                  :class="{ active: chartMode === 'daily' }"
+                  :aria-pressed="chartMode === 'daily'"
+                  @click="chooseChart('daily')"
+                >
+                  日 K
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: chartMode === 'intraday' }"
+                  :aria-pressed="chartMode === 'intraday'"
+                  @click="chooseChart('intraday')"
+                >
+                  最近分时
+                </button>
+              </div>
+            </div>
           </div>
-          <div v-if="stockLoading && !stockSeries" class="chart-state">
-            正在读取 {{ row.symbol }} 的日线…
-          </div>
-          <div v-else-if="stockFailure" class="chart-state chart-state--error" role="alert">
-            <AppIcon name="alert-triangle" :size="18" />
-            <b>个股日线读取失败</b>
-            <span>{{ stockFailure }}</span>
-            <small v-if="stockRequestId">请求编号 {{ stockRequestId }}</small>
-            <button type="button" @click="emit('retry-stock')">重试</button>
-          </div>
-          <div v-else-if="stockSeries && hasCandles" class="chart-scroll">
-            <StockDailyKline :series="stockSeries" :selected-date="row.date" />
-          </div>
-          <div v-else class="chart-state">当前窗口没有完整的个股日 K 数据。</div>
+          <template v-if="chartMode === 'daily'">
+            <div v-if="stockLoading && !stockSeries" class="chart-state">
+              正在读取 {{ row.symbol }} 的日线…
+            </div>
+            <div v-else-if="stockFailure" class="chart-state chart-state--error" role="alert">
+              <AppIcon name="alert-triangle" :size="18" />
+              <b>个股日线读取失败</b>
+              <span>{{ stockFailure }}</span>
+              <small v-if="stockRequestId">请求编号 {{ stockRequestId }}</small>
+              <button type="button" @click="emit('retry-stock')">重试</button>
+            </div>
+            <div v-else-if="stockSeries && hasCandles" class="chart-scroll">
+              <StockDailyKline :series="stockSeries" :selected-date="row.date" />
+            </div>
+            <div v-else class="chart-state">当前窗口没有完整的个股日 K 数据。</div>
+          </template>
+          <template v-else>
+            <div v-if="intradayLoading" class="chart-state">
+              正在读取 {{ row.symbol }} 的最近分时…
+            </div>
+            <div v-else-if="intradayFailure" class="chart-state chart-state--error" role="alert">
+              <AppIcon name="alert-triangle" :size="18" />
+              <b>最近分时读取失败</b>
+              <span>{{ intradayFailure }}</span>
+              <small v-if="intradayRequestId">请求编号 {{ intradayRequestId }}</small>
+              <button type="button" @click="emit('retry-intraday')">重试</button>
+            </div>
+            <div v-else-if="intradayBars.length" class="chart-scroll">
+              <IntradayChart :bars="intradayBars" />
+            </div>
+            <div v-else class="chart-state">最近交易日暂无分时数据。</div>
+          </template>
         </section>
 
         <p class="data-gap">封单额与换手率暂无数据。</p>
@@ -378,6 +441,40 @@ function saveNote() {
   color: var(--muted);
   font-size: 11.5px;
   line-height: 1.5;
+}
+
+.chart-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chart-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+}
+
+.chart-switch button {
+  min-height: 27px;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.chart-switch button.active {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--fg) 10%, transparent);
 }
 
 .chart-scroll {
