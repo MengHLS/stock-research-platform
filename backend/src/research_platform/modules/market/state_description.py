@@ -85,8 +85,16 @@ class MarketStateDescriptionService:
                 continue
             result[day] = MarketStateLimitCounts(
                 trading_day=day,
-                limit_up_close_count=_int(row, "limitUpCloseCount"),
-                limit_down_close_count=_int(row, "limitDownCloseCount"),
+                limit_up_close_count=_ordinary_limit_count(
+                    row,
+                    "ordinaryLimitUpCloseCount",
+                    "limitUpCloseCount",
+                ),
+                limit_down_close_count=_ordinary_limit_count(
+                    row,
+                    "ordinaryLimitDownCloseCount",
+                    "limitDownCloseCount",
+                ),
                 broken_board_count=_int(row, "brokenBoardCount"),
                 broken_board_rate_pct=_decimal(row, "brokenBoardRatePct"),
                 coverage_status=str(row.get("coverageStatus") or "UNKNOWN"),
@@ -351,8 +359,16 @@ def _facts(row: dict[str, Any]) -> MarketStateFactsRead:
         amount_rolling_120_midrank=_decimal(row, "amountRolling120Midrank"),
         csi300_volatility_20_pct=_decimal(row, "csi300Volatility20Pct"),
         csi300_drawdown_60_pct=_decimal(row, "csi300Drawdown60Pct"),
-        limit_up_close_count=_int(row, "limitUpCloseCount"),
-        limit_down_close_count=_int(row, "limitDownCloseCount"),
+        limit_up_close_count=_ordinary_limit_count(
+            row,
+            "ordinaryLimitUpCloseCount",
+            "limitUpCloseCount",
+        ),
+        limit_down_close_count=_ordinary_limit_count(
+            row,
+            "ordinaryLimitDownCloseCount",
+            "limitDownCloseCount",
+        ),
         broken_board_rate_pct=_decimal(row, "brokenBoardRatePct"),
         yesterday_limit_up_feedback_avg_return_pct=_decimal(
             row, "yesterdayLimitUpFeedbackAvgReturnPct"
@@ -373,7 +389,7 @@ def _quality_issues(
     issues = [
         MarketStateIssueRead(
             code="exploratory_certification",
-            message="事实层为EXPLORATORY；计算通过不等于ST、IPO特殊规则和历史可见性已完整认证。",
+            message="事实层为EXPLORATORY；ST按已观测区间排除，历史缺失区间和原始可见时点仍未完整认证。",
         )
     ]
     if base is None:
@@ -631,3 +647,9 @@ def _int(row: dict[str, Any], key: str) -> int | None:
     if not parsed.is_finite() or parsed != parsed.to_integral_value() or parsed < 0:
         return None
     return int(parsed)
+
+
+def _ordinary_limit_count(row: dict[str, Any], ordinary_key: str, raw_key: str) -> int | None:
+    """Prefer the ST/IPO-filtered count; retain compatibility with older deliveries."""
+
+    return _int(row, ordinary_key if ordinary_key in row else raw_key)

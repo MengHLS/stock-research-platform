@@ -222,6 +222,29 @@ def test_limit_counts_preserve_zero_and_bound_the_requested_dates(tmp_path):
     assert latest.limit_down_close_count is not None
 
 
+def test_limit_counts_prefer_ordinary_counts_that_exclude_st_and_ipo(tmp_path):
+    rows = market_rows()
+    rows[-1]["limitUpCloseCount"] = 30
+    rows[-1]["limitDownCloseCount"] = 27
+    rows[-1]["ordinaryLimitUpCloseCount"] = 12
+    rows[-1]["ordinaryLimitDownCloseCount"] = 0
+    write_delivery(tmp_path, rows)
+    service = MarketStateDescriptionService(
+        FrozenMarketStateSource(tmp_path),
+        MarketStateConfig(root=tmp_path),
+    )
+
+    latest_day = date.fromisoformat(rows[-1]["tradeDate"])
+    latest = service.limit_counts(latest_day, latest_day)[latest_day]
+    table = FrozenMarketStateSource(tmp_path).load()
+    facts = describe_row(table, rows[-1]["tradeDate"]).facts
+
+    assert latest.limit_up_close_count == 12
+    assert latest.limit_down_close_count == 0
+    assert facts.limit_up_close_count == 12
+    assert facts.limit_down_close_count == 0
+
+
 def test_limit_counts_reject_fractional_negative_and_boolean_values(tmp_path):
     rows = market_rows()
     rows[-1]["limitUpCloseCount"] = -1
