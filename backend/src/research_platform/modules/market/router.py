@@ -283,7 +283,7 @@ def get_review_indices(
     trading_day: Annotated[date, Query(alias="date")],
     window: Annotated[int, Query(ge=1, le=120)] = 60,
 ):
-    """认证读取四指数日线及 MA5/MA20，均线缺口保持 null。"""
+    """认证读取六指数日线及 MA5/MA20，均线缺口保持 null。"""
     return service.indices(trading_day, window)
 
 

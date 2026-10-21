@@ -114,6 +114,7 @@ class ReviewConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     cache_seconds: int = Field(default=60, ge=0, le=3600)
+    index_refresh_seconds: int = Field(default=3600, ge=0, le=7 * 24 * 3600)
     max_window: int = Field(default=120, ge=1, le=120)
     max_range_days: int = Field(default=366, ge=1, le=366)
     # Natural-day lookback used to find a board-history gap or reach the limit.
