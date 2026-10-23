@@ -6,6 +6,7 @@ import json
 import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from unittest.mock import MagicMock
 
 import httpx2 as httpx
 import pytest
@@ -300,6 +301,95 @@ def test_tencent_history_parses_etf_proxy_daily_bars():
     assert bars[-1].trading_day == date(2026, 10, 19)
     assert bars[-1].close == Decimal("3.872")
     client.close()
+
+
+def _tencent_payload(tencent_symbol: str) -> dict:
+    return {
+        "code": 0,
+        "data": {
+            tencent_symbol: {
+                "day": [
+                    ["2026-10-15", "101.0", "100.0", "102.0", "99.0", "1000.000"],
+                    ["2026-10-16", "100.0", "101.0", "102.0", "99.0", "1000.000"],
+                    ["2026-10-19", "101.0", "102.0", "103.0", "100.0", "1000.000"],
+                ]
+            }
+        },
+    }
+
+
+def _client_with_transport(handler, **upstream) -> UpstreamClient:
+    settings = Settings(
+        environment="test",
+        database_url="sqlite://",
+        _env_file=None,
+        upstream={"min_interval_ms": 0, **upstream},
+    )
+    return UpstreamClient(settings, transport=httpx.MockTransport(handler))
+
+
+@pytest.mark.parametrize(
+    ("instrument_key", "tencent_symbol"),
+    [("chinext", "sz399006"), ("star50", "sh000688")],
+)
+def test_tencent_history_falls_back_to_the_working_endpoint(
+    instrument_key: str,
+    tencent_symbol: str,
+) -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["param"] == f"{tencent_symbol},day,,,3,"
+        if request.url.host == "proxy.finance.qq.com":
+            assert request.url.path == "/ifzqgtimg/appstock/app/newfqkline/get"
+            calls.append("primary")
+            return httpx.Response(501)
+        assert request.url.host == "web.ifzq.gtimg.cn"
+        assert request.url.path == "/appstock/app/kline/kline"
+        calls.append("fallback")
+        return httpx.Response(200, json=_tencent_payload(tencent_symbol))
+
+    client = _client_with_transport(handler)
+    instrument = next(item for item in GLOBAL_INSTRUMENTS if item.key == instrument_key)
+
+    bars = TencentGlobalSource(client).history(instrument, 2)
+
+    assert calls == ["primary", "fallback"]
+    assert bars[-1].trading_day == date(2026, 10, 19)
+    assert bars[-1].close == Decimal("102.0")
+    client.close()
+
+
+def test_tencent_history_does_not_call_the_fallback_when_the_primary_succeeds() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "proxy.finance.qq.com"
+        assert request.url.path == "/ifzqgtimg/appstock/app/newfqkline/get"
+        assert request.url.params["param"] == "sz399006,day,,,3,"
+        calls.append("primary")
+        return httpx.Response(200, json=_tencent_payload("sz399006"))
+
+    client = _client_with_transport(handler)
+    instrument = next(item for item in GLOBAL_INSTRUMENTS if item.key == "chinext")
+
+    bars = TencentGlobalSource(client).history(instrument, 2)
+
+    assert calls == ["primary"]
+    assert bars[-1].close == Decimal("102.0")
+    client.close()
+
+
+def test_tencent_history_does_not_fallback_for_non_degradable_errors() -> None:
+    client = MagicMock()
+    client.get_json.side_effect = DomainError("MARKET_SOURCE_DISABLED")
+    instrument = next(item for item in GLOBAL_INSTRUMENTS if item.key == "chinext")
+
+    with pytest.raises(DomainError) as error:
+        TencentGlobalSource(client).history(instrument, 2)
+
+    assert error.value.code == "MARKET_SOURCE_DISABLED"
+    assert client.get_json.call_count == 1
 
 
 def test_naver_history_parses_korea_index_rows():

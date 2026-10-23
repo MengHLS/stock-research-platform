@@ -106,6 +106,9 @@ const indexCards = computed(() => {
     }
   })
 })
+const splitOverviewPanels = computed(
+  () => Boolean(overview.value) && (indexCards.value.length > 0 || Boolean(indicesFailure.value)),
+)
 
 const drawerTitle = computed(() => {
   if (drawerKind.value === 'index') return selectedIndexSeries.value?.name ?? '指数详情'
@@ -506,33 +509,38 @@ onBeforeUnmount(() => {
       <button type="button" class="small-button" @click="reloadKey += 1">重新读取总览</button>
     </section>
 
-    <MarketIndexPanel
-      v-if="(overview || overviewFailure) && (indexCards.length || indicesFailure)"
-      :date="overview?.date ?? indices?.date ?? ''"
-      :items="indexCards"
-      :series="indices"
-      :loading="loadingIndices"
-      :failure="indicesFailure ? failureText(indicesFailure) : null"
-      :request-id="indicesFailure?.requestId"
-      @select="openIndex"
-    />
-    <MarketSummaryPanel v-if="overview" :overview="overview" :previous="previous">
-      <template #controls>
-        <MarketReviewControls
-          :context="context"
-          :value="overview.date"
-          :window-value="selectedWindow"
-          :window-options="windowOptions"
-          :loading="loading"
-          @date="chooseDate"
-          @window="chooseWindow"
-          @previous="goDate(context?.previous_trading_day)"
-          @next="goDate(context?.next_trading_day)"
-          @latest="resetToLatest"
-          @reload="reloadKey += 1"
-        />
-      </template>
-    </MarketSummaryPanel>
+    <div
+      class="market-overview-grid"
+      :class="{ 'market-overview-grid--split': splitOverviewPanels }"
+    >
+      <MarketIndexPanel
+        v-if="(overview || overviewFailure) && (indexCards.length || indicesFailure)"
+        :date="overview?.date ?? indices?.date ?? ''"
+        :items="indexCards"
+        :series="indices"
+        :loading="loadingIndices"
+        :failure="indicesFailure ? failureText(indicesFailure) : null"
+        :request-id="indicesFailure?.requestId"
+        @select="openIndex"
+      />
+      <MarketSummaryPanel v-if="overview" :overview="overview" :previous="previous">
+        <template #controls>
+          <MarketReviewControls
+            :context="context"
+            :value="overview.date"
+            :window-value="selectedWindow"
+            :window-options="windowOptions"
+            :loading="loading"
+            @date="chooseDate"
+            @window="chooseWindow"
+            @previous="goDate(context?.previous_trading_day)"
+            @next="goDate(context?.next_trading_day)"
+            @latest="resetToLatest"
+            @reload="reloadKey += 1"
+          />
+        </template>
+      </MarketSummaryPanel>
+    </div>
     <MarketStateDescriptionPanel v-if="overview" :date="overview.date" />
     <section v-if="chartHistoryFailure && overview" class="banner banner--warn" role="status">
       <strong>更长周期图表暂按 {{ chartHistory.length }} 个交易日展示。</strong>
@@ -713,6 +721,13 @@ onBeforeUnmount(() => {
   padding: var(--review-pad);
 }
 
+.market-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .review-page :deep(.chart-scroll) {
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
@@ -745,9 +760,13 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (min-width: 2200px) {
+@media (min-width: 2400px) {
   .review-page {
     --review-pad: 22px;
+  }
+
+  .market-overview-grid--split {
+    grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
   }
 }
 
