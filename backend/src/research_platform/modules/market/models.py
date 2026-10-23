@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Index, Numeric, String
+from sqlalchemy import Date, DateTime, Index, Integer, Numeric, String
 from sqlalchemy.dialects.mysql import DATETIME as MySQLDateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -61,6 +61,32 @@ class ReviewIndexDailyBar(Base):
     close: Mapped[Decimal] = mapped_column(Numeric(24, 8), nullable=False)
     provider: Mapped[str] = mapped_column(String(20), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
+        DateTime().with_variant(MySQLDateTime(fsp=6), "mysql"),
+        nullable=False,
+    )
+
+
+class MarketReviewDailyCounts(Base):
+    """Derived, per-trading-day limit counts for days outside the frozen delivery.
+
+    The frozen market-state delivery stays the verified historical source. This
+    table is the platform's own post-close derivation for recent trading days, so
+    the calendar no longer goes blank when the external batch lags behind.
+    """
+
+    __tablename__ = "market_review_daily_counts"
+    __table_args__ = (Index("ix_review_daily_counts_day", "trading_day"),)
+
+    trading_day: Mapped[date] = mapped_column(Date, primary_key=True)
+    limit_up_close_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    limit_down_close_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_limit_up_close_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_limit_down_close_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    rule_known_bar_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    st_observed_bar_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    ipo_window_bar_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    coverage_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
         DateTime().with_variant(MySQLDateTime(fsp=6), "mysql"),
         nullable=False,
     )

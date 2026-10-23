@@ -37,6 +37,7 @@ class MarketStateLimitCounts:
     broken_board_count: int | None
     broken_board_rate_pct: Decimal | None
     coverage_status: str
+    source: str = "frozen"
 
 
 class MarketStateDescriptionService:

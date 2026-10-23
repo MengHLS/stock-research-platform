@@ -192,10 +192,10 @@ Element Plus 管基础组件，样式 token 管全局主题。简单趋势、热
 | 日内/日/周K线 | 腾讯 | `/api/v1/market/intraday`、`/kline` | 分钟线 m1–m60，约 800 根上限，无北交所覆盖，09:30 只含开盘集合竞价；日/周线 20–160 根，不复权；周线未接独立交易日历，按周五 15:00 近似标记 `week_in_progress` |
 | 竞价 | 新浪撮合 + 东方财富曲线 + 腾讯分笔兜底 | `/api/v1/market/auction` | 09:15–09:25 虚拟撮合曲线（东财）+ 09:25 实际成交（新浪，股数精确，覆盖沪深北/科创/ETF/指数）；东财被反爬拒绝时降级为仅成交并标记 `degraded` |
 | 日线 | Tushare | `/api/v1/market/daily` | 需 token；用于对账与历史，不作为日内来源 |
-| 历史复盘 | 旧研究源（只读）+ 腾讯公开指数日线 + 应用库指数快照 + 冻结市场状态 | `/api/v1/market/review/context`、`dates`、`overview`、`indices`、`limit-up`、`stock-series` | 登录后读取共享历史；默认日/前后交易日、涨停梯队、当日明细、个股日 K/MA、统计序列与六指数。上证、深证、沪深300、中证500 取旧源；创业板指、科创50 由腾讯不复权日线幂等写入 `market_review_index_daily`（最多 160 根），复盘按日期读库，早于覆盖保持缺失，单只失败继续使用已有行并独立降级；涨跌停日历家数取同日冻结市场状态，缺失保持 null；覆盖仅为行存在性 |
+| 历史复盘 | 旧研究源（只读）+ 腾讯公开指数日线 + 应用库指数快照 + 冻结市场状态 + 平台派生家数 | `/api/v1/market/review/context`、`dates`、`overview`、`indices`、`limit-up`、`stock-series` | 登录后读取共享历史；默认日/前后交易日、涨停梯队、当日明细、个股日 K/MA、统计序列与六指数。上证、深证、沪深300、中证500 取旧源；创业板指、科创50 由腾讯不复权日线幂等写入 `market_review_index_daily`（最多 160 根），复盘按日期读库，早于覆盖保持缺失，单只失败继续使用已有行并独立降级；涨跌停日历家数优先取同日冻结市场状态，缺失日回退收盘后派生的 `market_review_daily_counts`（应用库），两者都缺失保持 null，派生覆盖为探索性口径；覆盖仅为行存在性 |
 | 源状态 | 本服务 | `/api/v1/market/sources` | 各源是否配置及支持能力 |
 
-模块 `modules/market/` 内 `symbols`（A 股标识归一）、`global_types`（跨市场标的与口径）、`global_source`（多源回退）、各 provider、`service`（选源与缓存）、`review`（历史口径与纯计算）、`legacy_review_source`（旧表只读适配）、`review_public_indices`（复盘补充指数刷新适配）、`review_index_store`（应用库幂等读写）、`router`（HTTP）分层；provider 只依赖 `core`。北交所、涨跌停、停牌或“今日无成交”必须是显式错误码或 null，不得返回空数组冒充成功。
+模块 `modules/market/` 内 `symbols`（A 股标识归一）、`global_types`（跨市场标的与口径）、`global_source`（多源回退）、各 provider、`service`（选源与缓存）、`review`（历史口径与纯计算）、`legacy_review_source`（旧表只读适配）、`review_public_indices`（复盘补充指数刷新适配）、`review_index_store`（应用库幂等读写）、`review_counts`（收盘后家数口径）、`review_counts_store`（家数表读写）、`review_counts_refresh`（幂等刷新与收盘后调度）、`router`（HTTP）分层；provider 只依赖 `core`。北交所、涨跌停、停牌或“今日无成交”必须是显式错误码或 null，不得返回空数组冒充成功。
 
 ### 标识、单位与时间
 

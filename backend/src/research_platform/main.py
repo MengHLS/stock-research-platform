@@ -1,6 +1,7 @@
 """Composition root: the only place that wires infrastructure to modules."""
 
 import logging
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
@@ -29,6 +30,12 @@ from research_platform.modules.execution.router import router as execution_route
 from research_platform.modules.identity.router import router as identity_router
 from research_platform.modules.market.legacy_review_source import LegacyMarketReviewSource
 from research_platform.modules.market.review import MarketReviewService
+from research_platform.modules.market.review_counts_refresh import (
+    ReviewCountsScheduler,
+    ReviewCountsService,
+    start_scheduler_thread,
+)
+from research_platform.modules.market.review_counts_store import SqlReviewCountsStore
 from research_platform.modules.market.review_index_store import SqlReviewIndexStore
 from research_platform.modules.market.review_public_indices import PublicReviewIndexSource
 from research_platform.modules.market.router import router as market_router
@@ -53,13 +60,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = make_application_engine(settings)
     source_engine = make_source_engine(settings) if settings.source_mysql else None
     upstream = UpstreamClient(settings)
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    counts_store = SqlReviewCountsStore(sessions)
+    counts_service = ReviewCountsService(
+        LegacyMarketReviewSource(source_engine) if source_engine is not None else None,
+        counts_store,
+        settings.review_counts,
+        lookback_days=settings.review.lookback_days,
+    )
+    counts_scheduler = ReviewCountsScheduler(counts_service, settings.review_counts)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         log_event("api.started", version=__version__, environment=settings.environment)
+        scheduler_stop = threading.Event()
+        scheduler_thread = None
+        if (
+            source_engine is not None
+            and settings.review_counts.enabled
+            and settings.environment != "test"
+        ):
+            scheduler_thread = start_scheduler_thread(
+                counts_scheduler,
+                scheduler_stop,
+                interval_seconds=settings.review_counts.refresh_interval_seconds,
+            )
         try:
             yield
         finally:
+            scheduler_stop.set()
+            if scheduler_thread is not None:
+                scheduler_thread.join(timeout=5)
             upstream.close()
             if source_engine is not None:
                 source_engine.dispose()
@@ -75,7 +106,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         responses=DEFAULT_ERROR_RESPONSES,
     )
     app.state.settings = settings
-    app.state.sessions = sessionmaker(engine, expire_on_commit=False)
+    app.state.sessions = sessions
+    app.state.market_review_counts = counts_service
     # Quotes and minute bars stay in the service TTL cache. Public daily bars
     # needed by historical review are persisted in the application database.
     app.state.market = MarketService(settings, upstream)
@@ -87,6 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         LegacyMarketReviewSource(source_engine) if source_engine is not None else None,
         settings.review,
         market_state_counts=app.state.market_state,
+        daily_counts=counts_store,
         index_supplement=PublicReviewIndexSource(
             TencentGlobalSource(upstream),
             SqlReviewIndexStore(app.state.sessions),

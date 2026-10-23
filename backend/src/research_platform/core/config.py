@@ -121,6 +121,27 @@ class ReviewConfig(BaseModel):
     lookback_days: int = Field(default=400, ge=121, le=3650)
 
 
+class ReviewCountsConfig(BaseModel):
+    """Daily in-platform derivation of per-day limit-up/down counts.
+
+    The frozen market-state delivery remains the verified historical source; this
+    job only fills trading days the delivery does not cover yet (recent days).
+    Counts are derived from the read-only source database after the close and
+    persisted in the application database, so a page read never depends on an
+    external batch having been rebuilt.
+    """
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    enabled: bool = True
+    # Trading days recomputed on every refresh; also the manual backfill default.
+    backfill_days: int = Field(default=30, ge=1, le=120)
+    refresh_interval_seconds: int = Field(default=600, ge=60, le=86400)
+    # Exchange-local wall clock after which today's closed bars may be derived.
+    after_close_hour: int = Field(default=15, ge=0, le=23)
+    after_close_minute: int = Field(default=30, ge=0, le=59)
+
+
 class MarketStateConfig(BaseModel):
     """Read-only access to a verified, frozen market-state delivery directory."""
 
@@ -207,6 +228,7 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     upstream: UpstreamConfig = UpstreamConfig()
     review: ReviewConfig = ReviewConfig()
+    review_counts: ReviewCountsConfig = ReviewCountsConfig()
     market_state: MarketStateConfig | None = None
     tushare: TushareConfig | None = None
     object_storage: ObjectStorageConfig | None = None

@@ -24,6 +24,7 @@ from .review import (
     StockBar,
     StockQuote,
 )
+from .review_counts import DailyBar, SecurityMetadata
 
 T = TypeVar("T")
 
@@ -310,6 +311,100 @@ class LegacyMarketReviewSource:
             ]
 
         return self._safe(load, "stock_bars_range")
+
+    def daily_bars(self, trading_day: date) -> list[DailyBar]:
+        """All SH/SZ daily bars for one trading day, used by limit-count derivation."""
+
+        def load() -> list[DailyBar]:
+            rows = self._query(
+                """
+                SELECT stockCode, closePrice, preClosePrice
+                FROM stock_daily_prices
+                WHERE tradeDate = :day
+                  AND (stockCode LIKE '%.SH' OR stockCode LIKE '%.SZ')
+                ORDER BY stockCode
+                """,
+                {"day": trading_day.isoformat()},
+            )
+            return [
+                DailyBar(
+                    symbol=_text_required(row["stockCode"]),
+                    close=_decimal_optional(row["closePrice"]),
+                    pre_close=_decimal_optional(row["preClosePrice"]),
+                )
+                for row in rows
+            ]
+
+        return self._safe(load, "daily_bars")
+
+    def security_metadata(self) -> SecurityMetadata:
+        """Identity, listing dates and observed ST intervals for the SH/SZ universe."""
+
+        def load() -> SecurityMetadata:
+            identifiers = self._query(
+                """
+                SELECT securityId, securityCode, exchange
+                FROM research_security_identifier_history
+                WHERE identifierType = 'primary' AND exchange IN ('SH', 'SZ')
+                """,
+                {},
+            )
+            securities = self._query(
+                """
+                SELECT securityId, DATE_FORMAT(listedDate, '%Y-%m-%d') AS listedDate
+                FROM research_securities
+                WHERE exchange IN ('SH', 'SZ')
+                """,
+                {},
+            )
+            status_rows = self._query(
+                """
+                SELECT securityId, statusValue,
+                       DATE_FORMAT(effectiveFrom, '%Y-%m-%d') AS effectiveFrom,
+                       DATE_FORMAT(effectiveTo, '%Y-%m-%d') AS effectiveTo
+                FROM research_security_status_history
+                WHERE statusType = 'ST'
+                """,
+                {},
+            )
+            listed_by_security = {
+                str(row["securityId"]): _date(row["listedDate"])
+                for row in securities
+                if row.get("listedDate")
+            }
+            security_by_code: dict[str, str] = {}
+            ambiguous: set[str] = set()
+            for row in identifiers:
+                code = f"{_text_required(row['securityCode'])}.{_text_required(row['exchange'])}"
+                security_id = _text_required(row["securityId"])
+                existing = security_by_code.get(code)
+                if existing is not None and existing != security_id:
+                    ambiguous.add(code)
+                    continue
+                security_by_code[code] = security_id
+            for code in ambiguous:
+                security_by_code.pop(code, None)
+            listed_by_code = {
+                code: listed_by_security[security_id]
+                for code, security_id in security_by_code.items()
+                if security_id in listed_by_security
+            }
+            intervals: dict[str, list[tuple[date, date | None, str]]] = {}
+            for row in status_rows:
+                security_id = _text_required(row["securityId"])
+                value = _text_required(row["statusValue"])
+                if value not in ("ST", "*ST"):
+                    continue
+                start = _date(row["effectiveFrom"])
+                end = _optional_date(row["effectiveTo"])
+                intervals.setdefault(security_id, []).append((start, end, value))
+            return SecurityMetadata(
+                security_by_code=security_by_code,
+                listed_by_code=listed_by_code,
+                st_intervals={key: tuple(value) for key, value in intervals.items()},
+            )
+
+        return self._safe(load, "security_metadata")
 
     def market_wide_rows(self, start: date, end: date) -> list[MarketWideRow]:
         def load() -> list[MarketWideRow]:

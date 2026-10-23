@@ -21,6 +21,7 @@ from research_platform.core.errors import DomainError
 from research_platform.core.logging import log_event
 
 from .market_time import exchange_now
+from .review_counts_store import ReviewCountsStore, ReviewCountsStoreError
 from .review_schemas import (
     CoverageRead,
     HighBoardStockRead,
@@ -237,12 +238,14 @@ class MarketReviewService:
         *,
         market_state_counts: MarketStateLimitCountSource | None = None,
         index_supplement: ReviewIndexSupplement | None = None,
+        daily_counts: ReviewCountsStore | None = None,
         cache: TTLCache | None = None,
     ) -> None:
         self._source = source
         self._config = config
         self._market_state_counts = market_state_counts
         self._index_supplement = index_supplement
+        self._daily_counts = daily_counts
         self._cache = cache if cache is not None else TTLCache()
 
     @property
@@ -361,7 +364,7 @@ class MarketReviewService:
                     ),
                 )
             )
-        if count_error is not None:
+        if count_error is not None and not limit_counts:
             code, message = MARKET_STATE_COUNT_ISSUES[count_error]
             issues.append(
                 ReviewIssueRead(
@@ -375,15 +378,21 @@ class MarketReviewService:
                 ReviewIssueRead(
                     code="market_state_counts_unavailable",
                     scope=f"{start.isoformat()}/{end.isoformat()}",
-                    message="部分交易日缺少冻结市场状态的涨跌停计数，相关数字保持空值。",
+                    message="部分交易日缺少涨跌停计数，相关数字保持空值。",
                 )
             )
         if any(counts.coverage_status != "VERIFIED_UNIVERSE" for counts in limit_counts.values()):
+            derived = any(counts.source != "frozen" for counts in limit_counts.values())
             issues.append(
                 ReviewIssueRead(
                     code="market_state_counts_unverified",
                     scope=f"{start.isoformat()}/{end.isoformat()}",
-                    message="部分交易日的涨跌停计数不是完整验证口径。",
+                    message=(
+                        "部分交易日的涨跌停家数由平台在收盘后按源库行情计算，属于探索性口径，"
+                        "与冻结交付的完整验证口径不同。"
+                        if derived
+                        else "部分交易日的涨跌停计数不是完整验证口径。"
+                    ),
                 )
             )
         return ReviewDatesRead(
@@ -398,26 +407,50 @@ class MarketReviewService:
         start: date,
         end: date,
     ) -> tuple[dict[date, MarketStateLimitCounts], str | None]:
+        counts: dict[date, MarketStateLimitCounts] = {}
+        count_error: str | None = None
         if self._market_state_counts is None:
+            count_error = "SOURCE_NOT_CONFIGURED"
+        else:
+            try:
+                counts = dict(self._market_state_counts.limit_counts(start, end))
+            except DomainError as error:
+                if error.code not in MARKET_STATE_COUNT_ISSUES:
+                    raise
+                count_error = error.code
+        if count_error is not None:
             log_event(
                 "market.review_market_state_counts_failed",
                 level=logging.WARNING,
                 source="market_state",
-                reason="SOURCE_NOT_CONFIGURED",
+                reason=count_error,
             )
-            return {}, "SOURCE_NOT_CONFIGURED"
-        try:
-            return self._market_state_counts.limit_counts(start, end), None
-        except DomainError as error:
-            if error.code in MARKET_STATE_COUNT_ISSUES:
+        # The verified frozen delivery wins every day it covers; the platform's
+        # post-close derivation only fills the trading days it has not reached yet.
+        if self._daily_counts is not None:
+            try:
+                stored = self._daily_counts.counts(start, end)
+            except ReviewCountsStoreError:
                 log_event(
-                    "market.review_market_state_counts_failed",
+                    "market.review_daily_counts_failed",
                     level=logging.WARNING,
-                    source="market_state",
-                    reason=error.code,
+                    source="application_db",
+                    reason="UNAVAILABLE",
                 )
-                return {}, error.code
-            raise
+                stored = {}
+            for day, item in stored.items():
+                if day in counts:
+                    continue
+                counts[day] = MarketStateLimitCounts(
+                    trading_day=day,
+                    limit_up_close_count=item.limit_up_close_count,
+                    limit_down_close_count=item.limit_down_close_count,
+                    broken_board_count=None,
+                    broken_board_rate_pct=None,
+                    coverage_status=item.coverage_status,
+                    source=item.source,
+                )
+        return counts, count_error
 
     def _context(
         self,

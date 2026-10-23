@@ -1044,6 +1044,63 @@ def market_state_description(
     print(rendered, end="")
 
 
+def review_counts(action: str, *, days: int | None = None, as_of: str | None = None) -> None:
+    """Refresh or inspect the platform's derived daily limit counts."""
+    from sqlalchemy.orm import sessionmaker
+
+    from research_platform.core.config import Settings
+    from research_platform.core.database import make_application_engine, make_source_engine
+    from research_platform.core.errors import DomainError
+    from research_platform.modules.market.legacy_review_source import LegacyMarketReviewSource
+    from research_platform.modules.market.market_time import exchange_now
+    from research_platform.modules.market.review_counts_refresh import ReviewCountsService
+    from research_platform.modules.market.review_counts_store import SqlReviewCountsStore
+
+    settings = Settings()
+    if settings.source_mysql is None:
+        raise SystemExit("Source database is not configured")
+    app_engine = make_application_engine(settings)
+    source_engine = make_source_engine(settings)
+    sessions = sessionmaker(app_engine, expire_on_commit=False)
+    service = ReviewCountsService(
+        LegacyMarketReviewSource(source_engine),
+        SqlReviewCountsStore(sessions),
+        settings.review_counts,
+        lookback_days=settings.review.lookback_days,
+    )
+    try:
+        if action == "refresh":
+            result = service.refresh(
+                as_of=date.fromisoformat(as_of) if as_of else None,
+                days=days,
+            )
+            payload = {
+                "refreshed": [item.isoformat() for item in result.trading_days],
+                "skipped": [item.isoformat() for item in result.skipped_days],
+                "latest_trading_day": result.latest_trading_day.isoformat()
+                if result.latest_trading_day
+                else None,
+                "empty": result.empty,
+            }
+        elif action == "status":
+            latest = service.store.latest_trading_day()
+            eligible = service.latest_eligible_day(exchange_now())
+            payload = {
+                "stored_latest_trading_day": latest.isoformat() if latest else None,
+                "latest_eligible_source_trading_day": eligible.isoformat() if eligible else None,
+                "backfill_days": settings.review_counts.backfill_days,
+                "enabled": settings.review_counts.enabled,
+            }
+        else:
+            raise SystemExit(f"unknown review-counts action: {action}")
+    except DomainError as error:
+        raise SystemExit(f"{error.code}: {error.message}") from None
+    finally:
+        source_engine.dispose()
+        app_engine.dispose()
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1060,6 +1117,7 @@ def main() -> None:
             "db-check",
             "market-check",
             "market-state",
+            "review-counts",
             "prototype",
             "identity",
             "icons",
@@ -1080,6 +1138,15 @@ def main() -> None:
         help="market-state: emit one date or scan label distribution",
     )
     parser.add_argument("--date", help="market-state describe: YYYY-MM-DD")
+    parser.add_argument(
+        "--review-counts-action",
+        dest="review_counts_action",
+        choices=["refresh", "status"],
+        default="refresh",
+        help="review-counts: backfill/refresh or inspect the derived daily counts",
+    )
+    parser.add_argument("--days", type=int, help="review-counts refresh: trading days to recompute")
+    parser.add_argument("--as-of", help="review-counts refresh: YYYY-MM-DD upper bound")
     parser.add_argument("--start", help="market-state scan: YYYY-MM-DD")
     parser.add_argument("--end", help="market-state scan: YYYY-MM-DD")
     parser.add_argument("--output", help="market-state: optional .scratch JSON path")
@@ -1129,6 +1196,12 @@ def main() -> None:
             start=args.start,
             end=args.end,
             output=args.output,
+        )
+    elif args.task == "review-counts":
+        review_counts(
+            args.review_counts_action,
+            days=args.days,
+            as_of=args.as_of,
         )
     elif args.task == "prototype":
         prototype(args.action, args.to)
