@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ApiResult } from '../api/client'
 import type { LimitUpReviewRow, ReviewStockSeries } from './review'
-import type { StockProfile } from './stock-profile'
+import type { ReviewStockFacts } from './stock-facts'
 import { useStockDetail } from './useStockDetail'
 
 function row(symbol = '600519.SH'): LimitUpReviewRow {
@@ -33,8 +33,35 @@ function series(symbol: string): ReviewStockSeries {
   } as unknown as ReviewStockSeries
 }
 
-function profile(symbol: string): StockProfile {
-  return { symbol, name: '贵州茅台', industry: '白酒Ⅱ', provider: 'eastmoney' }
+function facts(symbol: string, turnover = '4.12'): ReviewStockFacts {
+  return {
+    symbol,
+    date: '2026-10-20',
+    industry: {
+      code: 'C39',
+      name: '计算机、通信和其他电子设备制造业',
+      source: 'baostock',
+      effective_from: '2026-08-31',
+      effective_to: null,
+    },
+    valuation: {
+      date: '2026-10-20',
+      turnover_pct: turnover,
+      total_market_cap_cny: '120000000000.00',
+      circulation_market_cap_cny: '95000000000.00',
+      source: 'baostock-daily',
+      unknown_fields: [],
+    },
+    trade: {
+      date: '2026-10-20',
+      volume_shares: '52345678.00',
+      amount_cny: '612000500.00',
+      source: 'tushare',
+      unknown_fields: [],
+    },
+    issues: [],
+    methodology: {},
+  } as unknown as ReviewStockFacts
 }
 
 function deferred<T>() {
@@ -51,20 +78,20 @@ async function flush() {
 }
 
 describe('stock detail request ownership', () => {
-  it('publishes series and industry independently when one source is slower', async () => {
+  it('publishes series and facts independently when one source is slower', async () => {
     const stock = deferred<ApiResult<ReviewStockSeries>>()
-    const industry = deferred<ApiResult<StockProfile>>()
+    const factsResult = deferred<ApiResult<ReviewStockFacts>>()
     const detail = useStockDetail(
       () => stock.promise,
-      () => industry.promise,
+      () => factsResult.promise,
     )
 
     const load = detail.load(row(), 60)
-    industry.resolve({ ok: true, data: profile('600519.SH'), requestId: null })
+    factsResult.resolve({ ok: true, data: facts('600519.SH'), requestId: null })
     await flush()
 
-    expect(detail.profile.value?.industry).toBe('白酒Ⅱ')
-    expect(detail.profileLoading.value).toBe(false)
+    expect(detail.facts.value?.valuation.turnover_pct).toBe('4.12')
+    expect(detail.factsLoading.value).toBe(false)
     expect(detail.stockLoading.value).toBe(true)
     expect(detail.stockSeries.value).toBeNull()
 
@@ -75,12 +102,12 @@ describe('stock detail request ownership', () => {
     expect(detail.stockLoading.value).toBe(false)
   })
 
-  it('publishes series while the industry request is still pending', async () => {
+  it('publishes series while the facts request is still pending', async () => {
     const stock = deferred<ApiResult<ReviewStockSeries>>()
-    const industry = deferred<ApiResult<StockProfile>>()
+    const factsResult = deferred<ApiResult<ReviewStockFacts>>()
     const detail = useStockDetail(
       () => stock.promise,
-      () => industry.promise,
+      () => factsResult.promise,
     )
 
     const load = detail.load(row(), 60)
@@ -89,19 +116,19 @@ describe('stock detail request ownership', () => {
 
     expect(detail.stockSeries.value?.symbol).toBe('600519.SH')
     expect(detail.stockLoading.value).toBe(false)
-    expect(detail.profileLoading.value).toBe(true)
-    expect(detail.profile.value).toBeNull()
+    expect(detail.factsLoading.value).toBe(true)
+    expect(detail.facts.value).toBeNull()
 
-    industry.resolve({ ok: true, data: profile('600519.SH'), requestId: null })
+    factsResult.resolve({ ok: true, data: facts('600519.SH'), requestId: null })
     await load
 
-    expect(detail.profile.value?.industry).toBe('白酒Ⅱ')
-    expect(detail.profileLoading.value).toBe(false)
+    expect(detail.facts.value?.industry?.name).toBe('计算机、通信和其他电子设备制造业')
+    expect(detail.factsLoading.value).toBe(false)
   })
 
-  it('does not let an old stock profile overwrite the latest selection', async () => {
-    const first = deferred<ApiResult<StockProfile>>()
-    const second = deferred<ApiResult<StockProfile>>()
+  it('does not let old facts overwrite the latest selection', async () => {
+    const first = deferred<ApiResult<ReviewStockFacts>>()
+    const second = deferred<ApiResult<ReviewStockFacts>>()
     let call = 0
     const detail = useStockDetail(
       async (current) => ({
@@ -114,16 +141,72 @@ describe('stock detail request ownership', () => {
 
     const oldLoad = detail.load(row('600519.SH'), 60)
     const latestLoad = detail.load(row('000001.SZ'), 60)
-    second.resolve({ ok: true, data: profile('000001.SZ'), requestId: null })
+    second.resolve({ ok: true, data: facts('000001.SZ', '0.65'), requestId: null })
     await latestLoad
-    first.resolve({ ok: true, data: profile('600519.SH'), requestId: null })
+    first.resolve({ ok: true, data: facts('600519.SH'), requestId: null })
     await oldLoad
 
-    expect(detail.profile.value?.symbol).toBe('000001.SZ')
+    expect(detail.facts.value?.symbol).toBe('000001.SZ')
+    expect(detail.facts.value?.valuation.turnover_pct).toBe('0.65')
   })
 
-  it('retries the industry request without clearing the loaded series', async () => {
-    let profileCall = 0
+  it('ignores an older review day response for the same stock', async () => {
+    const older = deferred<ApiResult<ReviewStockFacts>>()
+    const newer = deferred<ApiResult<ReviewStockFacts>>()
+    const signals: AbortSignal[] = []
+    const detail = useStockDetail(
+      async (current) => ({ ok: true, data: series(current.symbol), requestId: null }),
+      (_symbol, day, signal) => {
+        signals.push(signal)
+        return day === '2026-10-19' ? older.promise : newer.promise
+      },
+    )
+    const oldLoad = detail.load({ ...row(), date: '2026-10-19' }, 60)
+    const newLoad = detail.load(row(), 60)
+    newer.resolve({ ok: true, data: facts('600519.SH', '8.00'), requestId: null })
+    await newLoad
+    older.resolve({ ok: true, data: facts('600519.SH', '1.00'), requestId: null })
+    await oldLoad
+    expect(signals[0]?.aborted).toBe(true)
+    expect(detail.facts.value?.valuation.turnover_pct).toBe('8.00')
+  })
+
+  it('does not publish responses after the detail is cleared on unmount', async () => {
+    const pending = deferred<ApiResult<ReviewStockFacts>>()
+    const detail = useStockDetail(
+      async (current) => ({ ok: true, data: series(current.symbol), requestId: null }),
+      () => pending.promise,
+    )
+    const load = detail.load(row(), 60)
+    detail.clear()
+    pending.resolve({ ok: true, data: facts('600519.SH'), requestId: null })
+    await load
+    expect(detail.facts.value).toBeNull()
+    expect(detail.stockSeries.value).toBeNull()
+    expect(detail.factsLoading.value).toBe(false)
+  })
+
+  it('requests facts for the selected review day, not the latest day', async () => {
+    const requested: Array<[string, string]> = []
+    const detail = useStockDetail(
+      async (current) => ({
+        ok: true,
+        data: series(current.symbol),
+        requestId: null,
+      }),
+      async (symbol, tradingDay) => {
+        requested.push([symbol, tradingDay])
+        return { ok: true, data: facts(symbol), requestId: null }
+      },
+    )
+
+    await detail.load(row(), 60)
+
+    expect(requested).toEqual([['600519.SH', '2026-10-20']])
+  })
+
+  it('retries the facts request without clearing the loaded series', async () => {
+    let factsCall = 0
     const detail = useStockDetail(
       async (current) => ({
         ok: true,
@@ -131,34 +214,34 @@ describe('stock detail request ownership', () => {
         requestId: null,
       }),
       async () => {
-        profileCall += 1
-        if (profileCall === 1) {
+        factsCall += 1
+        if (factsCall === 1) {
           return {
             ok: false,
             failure: {
               kind: 'network',
               code: null,
               status: null,
-              message: '行业源不可用',
-              requestId: 'req-industry',
+              message: '复盘数据库不可用',
+              requestId: 'req-facts',
               retryable: true,
               fields: [],
             },
           }
         }
-        return { ok: true, data: profile('600519.SH'), requestId: null }
+        return { ok: true, data: facts('600519.SH'), requestId: null }
       },
     )
 
     await detail.load(row(), 60)
-    expect(detail.profileFailure.value?.requestId).toBe('req-industry')
+    expect(detail.factsFailure.value?.requestId).toBe('req-facts')
     expect(detail.stockSeries.value?.symbol).toBe('600519.SH')
 
-    detail.retryProfile()
+    detail.retryFacts()
     await flush()
 
-    expect(detail.profile.value?.industry).toBe('白酒Ⅱ')
-    expect(detail.profileFailure.value).toBeNull()
+    expect(detail.facts.value?.industry?.code).toBe('C39')
+    expect(detail.factsFailure.value).toBeNull()
     expect(detail.stockSeries.value?.symbol).toBe('600519.SH')
   })
 })

@@ -4,6 +4,7 @@ import { renderToString } from 'vue/server-renderer'
 
 import LimitUpDetail from '../components/market/LimitUpDetail.vue'
 import type { LimitUpReviewRow } from './review'
+import type { ReviewStockFacts } from './stock-facts'
 
 const row: LimitUpReviewRow = {
   date: '2026-10-20',
@@ -20,6 +21,74 @@ const row: LimitUpReviewRow = {
   one_word_board: false,
 }
 
+const facts: ReviewStockFacts = {
+  symbol: '600519.SH',
+  date: '2026-10-20',
+  industry: {
+    code: 'C39',
+    name: '计算机、通信和其他电子设备制造业',
+    source: 'baostock',
+    effective_from: '2026-08-31',
+    effective_to: null,
+  },
+  valuation: {
+    date: '2026-10-20',
+    turnover_pct: '4.12',
+    total_market_cap_cny: '120000000000.00',
+    circulation_market_cap_cny: '95000000000.00',
+    source: 'baostock-daily',
+    unknown_fields: [],
+  },
+  trade: {
+    date: '2026-10-20',
+    volume_shares: '52345678.00',
+    amount_cny: '612000500.00',
+    source: 'tushare',
+    unknown_fields: [],
+  },
+  issues: [],
+  methodology: {},
+} as unknown as ReviewStockFacts
+
+const missingFacts: ReviewStockFacts = {
+  symbol: '600519.SH',
+  date: '2026-10-23',
+  industry: null,
+  valuation: {
+    date: '2026-10-23',
+    turnover_pct: null,
+    total_market_cap_cny: null,
+    circulation_market_cap_cny: null,
+    source: null,
+    unknown_fields: ['turnover_pct', 'total_market_cap_cny', 'circulation_market_cap_cny'],
+  },
+  trade: {
+    date: '2026-10-23',
+    volume_shares: null,
+    amount_cny: null,
+    source: null,
+    unknown_fields: ['volume_shares', 'amount_cny'],
+  },
+  issues: [
+    {
+      code: 'stock_industry_missing',
+      scope: '2026-10-23',
+      message: '旧库没有该股票在观察日生效的行业归属，行业保持未知。',
+    },
+    {
+      code: 'stock_liquidity_missing',
+      scope: '2026-10-23',
+      message: '旧库流动性日线在该交易日没有该股票记录，换手率与市值保持未知。',
+    },
+    {
+      code: 'stock_trade_missing',
+      scope: '2026-10-23',
+      message: '旧库个股日线在该交易日缺少成交量或成交额，保持未知。',
+    },
+  ],
+  methodology: {},
+} as unknown as ReviewStockFacts
+
 function props(overrides: Record<string, unknown> = {}) {
   return {
     row,
@@ -29,11 +98,10 @@ function props(overrides: Record<string, unknown> = {}) {
     stockLoading: false,
     stockFailure: null,
     stockRequestId: null,
-    industry: '白酒Ⅱ',
-    industryProvider: 'eastmoney',
-    industryLoading: false,
-    industryFailure: null,
-    industryRequestId: null,
+    facts,
+    factsLoading: false,
+    factsFailure: null,
+    factsRequestId: null,
     intradayBars: [],
     intradayTradingDay: null,
     intradayLoading: false,
@@ -43,32 +111,58 @@ function props(overrides: Record<string, unknown> = {}) {
   }
 }
 
-describe('limit-up stock detail industry', () => {
-  it('shows a provider industry separately from the limit-up theme', async () => {
+describe('limit-up stock detail database facts', () => {
+  it('shows the database industry separately from the limit-up theme', async () => {
     const html = await renderToString(createSSRApp(LimitUpDetail, props()))
 
     expect(html).toContain('>行业</dt>')
-    expect(html).toContain('白酒Ⅱ')
+    expect(html).toContain('计算机、通信和其他电子设备制造业')
     expect(html).toContain('>题材</dt>')
+    expect(html).not.toContain('东方财富')
   })
 
-  it('does not substitute the theme when industry is explicitly unavailable', async () => {
+  it('shows market cap, turnover and traded volume with their units', async () => {
+    const html = await renderToString(createSSRApp(LimitUpDetail, props()))
+
+    expect(html).toContain('>公司市值</dt>')
+    expect(html).toContain('1200.00 亿')
+    expect(html).toContain('流通 950.00 亿')
+    expect(html).toContain('>换手率</dt>')
+    expect(html).toContain('4.12%')
+    expect(html).toContain('>成交量</dt>')
+    expect(html).toContain('52.35 万手')
+    expect(html).toContain('成交额 6.12 亿')
+  })
+
+  it('keeps unavailable values unknown and explains the database gap', async () => {
+    const html = await renderToString(
+      createSSRApp(
+        LimitUpDetail,
+        props({ row: { ...row, date: '2026-10-23' }, facts: missingFacts }),
+      ),
+    )
+
+    expect(html).toContain('未知')
+    expect(html).toContain('旧库没有该股票在观察日生效的行业归属')
+    expect(html).toContain('换手率与市值保持未知')
+    expect(html).not.toContain('0.00 亿')
+  })
+
+  it('offers a retry that is scoped to the database facts request', async () => {
     const html = await renderToString(
       createSSRApp(
         LimitUpDetail,
         props({
-          industry: null,
-          industryProvider: null,
-          industryFailure: '行业来源暂不可用',
-          industryRequestId: 'req-industry',
+          facts: null,
+          factsFailure: '复盘数据库暂不可用',
+          factsRequestId: 'req-facts',
         }),
       ),
     )
 
-    expect(html).toContain('未获取')
-    expect(html).toContain('行业来源暂不可用')
-    expect(html).toContain('请求编号 req-industry')
-    expect(html).toContain('重试行业')
+    expect(html).toContain('复盘数据库暂不可用')
+    expect(html).toContain('请求编号 req-facts')
+    expect(html).toContain('重试行业与量价')
   })
 
   it('offers daily and latest-intraday chart modes in the same area', async () => {

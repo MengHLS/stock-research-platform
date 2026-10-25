@@ -112,6 +112,31 @@ export function formatMetric(value: number | null | undefined, suffix = ''): str
   return value === null || value === undefined ? '—' : `${value}${suffix}`
 }
 
+/** Market cap/amount in CNY; 亿元 and 万元 keep large numbers readable. */
+export function formatMarketCapCny(value: string | number | null | undefined): string {
+  const number = chartNumber(value)
+  if (number === null) return '—'
+  const absolute = Math.abs(number)
+  if (absolute >= 100000000) return `${(number / 100000000).toFixed(2)} 亿`
+  if (absolute >= 10000) return `${(number / 10000).toFixed(2)} 万`
+  return `${number.toFixed(2)} 元`
+}
+
+export function formatTurnoverPct(value: string | number | null | undefined): string {
+  const number = chartNumber(value)
+  if (number === null) return '—'
+  return `${number.toFixed(2)}%`
+}
+
+/** The API exposes shares; A-share readers quote volume in lots (1 hand = 100 shares). */
+export function formatVolumeLots(value: string | number | null | undefined): string {
+  const shares = chartNumber(value)
+  if (shares === null) return '—'
+  const lots = shares / 100
+  if (Math.abs(lots) >= 10000) return `${(lots / 10000).toFixed(2)} 万手`
+  return `${lots.toFixed(2)} 手`
+}
+
 export function emotionRating(score: number | null | undefined): EmotionRating {
   if (score === null || score === undefined) {
     return { label: '不可评估', tone: 'flat', note: '评分所需记录不完整，页面保留未知。' }

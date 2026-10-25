@@ -17,6 +17,7 @@ from .review_schemas import (
     ReviewIndicesRead,
     ReviewLimitUpRead,
     ReviewOverviewRead,
+    ReviewStockFactsRead,
     ReviewStockSeriesRead,
 )
 from .schemas import (
@@ -303,6 +304,23 @@ def get_review_stock_series(
 ):
     """认证读取单只股票的日 K 与 MA；缺失日保持 null。"""
     return service.stock_series(symbol, trading_day, window)
+
+
+@router.get(
+    "/review/stock-facts",
+    response_model=ReviewStockFactsRead,
+    operation_id="get_market_review_stock_facts",
+    responses=REVIEW_RESPONSES,
+    dependencies=[Depends(require_query(frozenset({"symbol", "date"})))],
+)
+def get_review_stock_facts(
+    service: ReviewServiceDep,
+    _actor: ActorDep,
+    symbol: SymbolQuery,
+    trading_day: Annotated[date, Query(alias="date")],
+):
+    """认证读取单只股票的行业归属、换手率、市值与成交量；均来自复盘数据库。"""
+    return service.stock_facts(symbol, trading_day)
 
 
 @router.get(

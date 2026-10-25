@@ -496,6 +496,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/market/review/stock-facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Stock Facts
+         * @description 认证读取单只股票的行业归属、换手率、市值与成交量；均来自复盘数据库。
+         */
+        get: operations["get_market_review_stock_facts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/market/review/limit-up": {
         parameters: {
             query?: never;
@@ -1857,7 +1877,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "source_presence_only" | "calendar_derived_from_index_daily" | "target_limit_up_missing" | "previous_limit_up_missing" | "board_history_exhausted" | "stock_quote_missing" | "history_window_truncated" | "index_history_missing" | "stock_history_missing" | "market_state_counts_unavailable" | "market_state_counts_not_configured" | "market_state_counts_source_unavailable" | "market_state_counts_source_bad_data" | "market_state_counts_unverified";
+            code: "source_presence_only" | "calendar_derived_from_index_daily" | "target_limit_up_missing" | "previous_limit_up_missing" | "board_history_exhausted" | "stock_quote_missing" | "history_window_truncated" | "index_history_missing" | "stock_history_missing" | "market_state_counts_unavailable" | "market_state_counts_not_configured" | "market_state_counts_source_unavailable" | "market_state_counts_source_bad_data" | "market_state_counts_unverified" | "stock_industry_missing" | "stock_liquidity_missing" | "stock_turnover_missing" | "stock_market_cap_missing" | "stock_trade_missing";
             /** Scope */
             scope: string;
             /** Message */
@@ -1920,6 +1940,21 @@ export interface components {
              * @default 上证、深证、沪深300、中证500 取旧源并有金额/成交量；创业板指、科创50 取腾讯公开不复权日线并写入应用库，仅 OHLC，最多 160 根，早于覆盖范围保持缺失。
              */
             index_units: string;
+            /**
+             * Stock Industry
+             * @default 行业取旧源 industry_assignments 中在观察日生效的归属（证监会行业分类），不是涨停题材；没有生效记录时保持 null。
+             */
+            stock_industry: string;
+            /**
+             * Stock Liquidity Units
+             * @default 换手率与市值取旧源 liquidity_daily：turnoverRate 为 %，市值为元；该表在观察日没有该股票行或字段为空时保持 null。
+             */
+            stock_liquidity_units: string;
+            /**
+             * Stock Trade Units
+             * @default 成交量取旧源 stock_daily_prices.volume（源为手，接口换算为股）与 amount（源为千元，接口换算为元）。
+             */
+            stock_trade_units: string;
         };
         /** ReviewOverviewRead */
         ReviewOverviewRead: {
@@ -1977,6 +2012,43 @@ export interface components {
             /** Ma20 */
             ma20?: string | null;
         };
+        /**
+         * ReviewStockFactsRead
+         * @description Point-in-time industry, valuation and traded volume read from the review database.
+         */
+        ReviewStockFactsRead: {
+            /** Symbol */
+            symbol: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            industry?: components["schemas"]["ReviewStockIndustryRead"] | null;
+            valuation: components["schemas"]["ReviewStockValuationRead"];
+            trade: components["schemas"]["ReviewStockTradeRead"];
+            /** Issues */
+            issues: components["schemas"]["ReviewIssueRead"][];
+            methodology: components["schemas"]["ReviewMethodologyRead"];
+        };
+        /** ReviewStockIndustryRead */
+        ReviewStockIndustryRead: {
+            /** Code */
+            code?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Source */
+            source?: string | null;
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+            /** Effective To */
+            effective_to?: string | null;
+            /** Unknown Fields */
+            unknown_fields?: string[];
+        };
         /** ReviewStockSeriesRead */
         ReviewStockSeriesRead: {
             /** Symbol */
@@ -1993,6 +2065,40 @@ export interface components {
             /** Issues */
             issues: components["schemas"]["ReviewIssueRead"][];
             methodology: components["schemas"]["ReviewMethodologyRead"];
+        };
+        /** ReviewStockTradeRead */
+        ReviewStockTradeRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Volume Shares */
+            volume_shares?: string | null;
+            /** Amount Cny */
+            amount_cny?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Unknown Fields */
+            unknown_fields?: string[];
+        };
+        /** ReviewStockValuationRead */
+        ReviewStockValuationRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Turnover Pct */
+            turnover_pct?: string | null;
+            /** Total Market Cap Cny */
+            total_market_cap_cny?: string | null;
+            /** Circulation Market Cap Cny */
+            circulation_market_cap_cny?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Unknown Fields */
+            unknown_fields?: string[];
         };
         /** ReviewSummaryRead */
         ReviewSummaryRead: {
@@ -5040,6 +5146,129 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewStockSeriesRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Historical review source has bad data */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_market_review_stock_facts: {
+        parameters: {
+            query: {
+                /** @description 规范形态 600519.SH；也接受 600519 / sh600519 / sh.600519 / 600519.sh */
+                symbol: string;
+                date: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewStockFactsRead"];
                 };
             };
             /** @description Request cannot be processed */

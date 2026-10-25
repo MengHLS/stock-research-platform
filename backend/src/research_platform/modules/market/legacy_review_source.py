@@ -22,7 +22,10 @@ from .review import (
     ReviewDateCoverage,
     ReviewSourceDataError,
     StockBar,
+    StockIndustryAssignment,
+    StockLiquidity,
     StockQuote,
+    StockTrade,
 )
 from .review_counts import DailyBar, SecurityMetadata
 
@@ -462,6 +465,92 @@ class LegacyMarketReviewSource:
             ]
 
         return self._safe(load, "index_rows")
+
+    def stock_industry(self, symbol: str, as_of: date) -> StockIndustryAssignment | None:
+        """Industry assignment effective on ``as_of``; the table is not a full history."""
+
+        def load() -> StockIndustryAssignment | None:
+            rows = self._query(
+                """
+                SELECT securityCode, industryCode, industryName,
+                       effectiveFrom, effectiveTo, source
+                FROM industry_assignments
+                WHERE securityCode = :symbol
+                  AND effectiveFrom <= :as_of
+                  AND (effectiveTo IS NULL OR effectiveTo >= :as_of)
+                ORDER BY effectiveFrom DESC, id DESC
+                LIMIT 1
+                """,
+                {"symbol": symbol, "as_of": as_of.isoformat()},
+            )
+            if not rows:
+                return None
+            row = rows[0]
+            return StockIndustryAssignment(
+                symbol=_text_required(row["securityCode"]),
+                code=_text_optional(row["industryCode"]),
+                name=_text_optional(row["industryName"]),
+                source=_text_optional(row["source"]),
+                effective_from=_date(row["effectiveFrom"]),
+                effective_to=_optional_date(row["effectiveTo"]),
+            )
+
+        return self._safe(load, "stock_industry")
+
+    def stock_liquidity(self, symbol: str, trading_day: date) -> StockLiquidity | None:
+        """Turnover rate and market capitalization from the legacy liquidity table."""
+
+        def load() -> StockLiquidity | None:
+            rows = self._query(
+                """
+                SELECT securityCode, tradeDate, turnoverRate,
+                       totalMarketCap, circulationMarketCap, source
+                FROM liquidity_daily
+                WHERE securityCode = :symbol AND tradeDate = :day
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                {"symbol": symbol, "day": trading_day.isoformat()},
+            )
+            if not rows:
+                return None
+            row = rows[0]
+            return StockLiquidity(
+                symbol=_text_required(row["securityCode"]),
+                trading_day=_date(row["tradeDate"]),
+                turnover_pct=_decimal_optional(row["turnoverRate"]),
+                total_market_cap_cny=_decimal_optional(row["totalMarketCap"]),
+                circulation_market_cap_cny=_decimal_optional(row["circulationMarketCap"]),
+                source=_text_optional(row["source"]),
+            )
+
+        return self._safe(load, "stock_liquidity")
+
+    def stock_trade(self, symbol: str, trading_day: date) -> StockTrade | None:
+        """Traded volume/amount from the legacy price table (volume in lots, amount in k CNY)."""
+
+        def load() -> StockTrade | None:
+            rows = self._query(
+                """
+                SELECT stockCode, tradeDate, volume, amount, source
+                FROM stock_daily_prices
+                WHERE stockCode = :symbol AND tradeDate = :day
+                LIMIT 1
+                """,
+                {"symbol": symbol, "day": trading_day.isoformat()},
+            )
+            if not rows:
+                return None
+            row = rows[0]
+            return StockTrade(
+                symbol=_text_required(row["stockCode"]),
+                trading_day=_date(row["tradeDate"]),
+                volume_lots=_decimal_optional(row["volume"]),
+                amount_1000cny=_decimal_optional(row["amount"]),
+                source=_text_optional(row["source"]),
+            )
+
+        return self._safe(load, "stock_trade")
 
     def _query(
         self,

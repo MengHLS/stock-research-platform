@@ -24,6 +24,11 @@ IssueCode = Literal[
     "market_state_counts_source_unavailable",
     "market_state_counts_source_bad_data",
     "market_state_counts_unverified",
+    "stock_industry_missing",
+    "stock_liquidity_missing",
+    "stock_turnover_missing",
+    "stock_market_cap_missing",
+    "stock_trade_missing",
 ]
 
 
@@ -201,6 +206,18 @@ class ReviewMethodologyRead(BaseModel):
         "上证、深证、沪深300、中证500 取旧源并有金额/成交量；创业板指、科创50 "
         "取腾讯公开不复权日线并写入应用库，仅 OHLC，最多 160 根，早于覆盖范围保持缺失。"
     )
+    stock_industry: str = (
+        "行业取旧源 industry_assignments 中在观察日生效的归属（证监会行业分类），"
+        "不是涨停题材；没有生效记录时保持 null。"
+    )
+    stock_liquidity_units: str = (
+        "换手率与市值取旧源 liquidity_daily：turnoverRate 为 %，市值为元；"
+        "该表在观察日没有该股票行或字段为空时保持 null。"
+    )
+    stock_trade_units: str = (
+        "成交量取旧源 stock_daily_prices.volume（源为手，接口换算为股）"
+        "与 amount（源为千元，接口换算为元）。"
+    )
 
 
 class ReviewOverviewRead(BaseModel):
@@ -282,6 +299,52 @@ class ReviewStockSeriesRead(BaseModel):
     coverage: CoverageRead
     missing_days: int = Field(ge=0)
     bars: list[ReviewStockBarRead]
+    issues: list[ReviewIssueRead]
+    methodology: ReviewMethodologyRead
+
+
+class ReviewStockIndustryRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str | None = None
+    name: str | None = None
+    source: str | None = None
+    effective_from: date
+    effective_to: date | None = None
+    unknown_fields: list[str] = Field(default_factory=list)
+
+
+class ReviewStockValuationRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    turnover_pct: Decimal | None = None
+    total_market_cap_cny: Decimal | None = None
+    circulation_market_cap_cny: Decimal | None = None
+    source: str | None = None
+    unknown_fields: list[str] = Field(default_factory=list)
+
+
+class ReviewStockTradeRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    volume_shares: Decimal | None = None
+    amount_cny: Decimal | None = None
+    source: str | None = None
+    unknown_fields: list[str] = Field(default_factory=list)
+
+
+class ReviewStockFactsRead(BaseModel):
+    """Point-in-time industry, valuation and traded volume read from the review database."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str
+    date: date
+    industry: ReviewStockIndustryRead | None = None
+    valuation: ReviewStockValuationRead
+    trade: ReviewStockTradeRead
     issues: list[ReviewIssueRead]
     methodology: ReviewMethodologyRead
 

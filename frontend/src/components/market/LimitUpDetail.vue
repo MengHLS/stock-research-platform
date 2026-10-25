@@ -6,7 +6,15 @@ import IntradayChart from './IntradayChart.vue'
 import StockDailyKline from './StockDailyKline.vue'
 import type { IntradayBar } from '../../market/intraday'
 import type { LimitUpReviewRow, ReviewStockSeries } from '../../market/review'
-import { buildCandleData, compareClass, formatSignedPercent } from '../../market/review'
+import {
+  buildCandleData,
+  compareClass,
+  formatMarketCapCny,
+  formatSignedPercent,
+  formatTurnoverPct,
+  formatVolumeLots,
+} from '../../market/review'
+import type { ReviewStockFacts } from '../../market/stock-facts'
 import { limitUpBoardLabel, limitUpSealLabel, limitUpStatusLabel } from '../../market/limit-up'
 
 const props = defineProps<{
@@ -17,11 +25,10 @@ const props = defineProps<{
   stockLoading: boolean
   stockFailure: string | null
   stockRequestId?: string | null
-  industry: string | null
-  industryProvider: string | null
-  industryLoading: boolean
-  industryFailure: string | null
-  industryRequestId?: string | null
+  facts: ReviewStockFacts | null
+  factsLoading: boolean
+  factsFailure: string | null
+  factsRequestId?: string | null
   intradayBars: IntradayBar[]
   intradayTradingDay: string | null
   intradayLoading: boolean
@@ -33,7 +40,7 @@ const emit = defineEmits<{
   'save-note': [note: string]
   select: [row: LimitUpReviewRow]
   'retry-stock': []
-  'retry-industry': []
+  'retry-facts': []
   'request-intraday': []
   'retry-intraday': []
 }>()
@@ -45,6 +52,20 @@ let savedSnapshot: { key: string; note: string } | null = null
 const currentRowKey = () => `${props.row.date}|${props.row.symbol}|${props.row.status}`
 const hasCandles = computed(() =>
   buildCandleData(props.stockSeries?.bars ?? []).some((bar) => bar !== null),
+)
+const industryName = computed(() => props.facts?.industry?.name ?? '未知')
+const industryMeta = computed(() => {
+  const industry = props.facts?.industry
+  if (!industry) return ''
+  return [industry.code, industry.source, `自 ${industry.effective_from} 生效`]
+    .filter(Boolean)
+    .join(' · ')
+})
+const factsNote = computed(() =>
+  (props.facts?.issues ?? [])
+    .filter((issue) => issue.code.startsWith('stock_'))
+    .map((issue) => issue.message)
+    .join(' '),
 )
 watch(
   () => [props.row.date, props.row.symbol, props.row.status, props.note],
@@ -106,15 +127,34 @@ function saveNote() {
       </div>
       <div>
         <dt>行业</dt>
-        <dd :title="industryFailure ?? undefined">
-          {{ industryLoading ? '读取中…' : (industry ?? '未获取') }}
+        <dd :title="factsFailure ?? undefined">
+          {{ factsLoading && !facts ? '读取中…' : industryName }}
         </dd>
-        <template v-if="!industryLoading && industryFailure">
-          <small class="fact-error">{{ industryFailure }}</small>
-          <small v-if="industryRequestId">请求编号 {{ industryRequestId }}</small>
-          <button type="button" class="fact-retry" @click="emit('retry-industry')">重试行业</button>
+        <small v-if="industryMeta">{{ industryMeta }}</small>
+        <template v-if="!factsLoading && factsFailure">
+          <small class="fact-error">{{ factsFailure }}</small>
+          <small v-if="factsRequestId">请求编号 {{ factsRequestId }}</small>
+          <button type="button" class="fact-retry" @click="emit('retry-facts')">
+            重试行业与量价
+          </button>
         </template>
-        <small v-else-if="!industryLoading && industryProvider">东方财富</small>
+      </div>
+      <div>
+        <dt>公司市值</dt>
+        <dd>{{ formatMarketCapCny(facts?.valuation.total_market_cap_cny) }}</dd>
+        <small>流通 {{ formatMarketCapCny(facts?.valuation.circulation_market_cap_cny) }}</small>
+      </div>
+      <div>
+        <dt>换手率</dt>
+        <dd>{{ formatTurnoverPct(facts?.valuation.turnover_pct) }}</dd>
+        <small v-if="facts?.valuation.source">{{ facts.valuation.source }}</small>
+      </div>
+      <div>
+        <dt>成交量</dt>
+        <dd>{{ formatVolumeLots(facts?.trade.volume_shares) }}</dd>
+        <small v-if="facts?.trade.amount_cny !== undefined">
+          成交额 {{ formatMarketCapCny(facts?.trade.amount_cny) }}
+        </small>
       </div>
       <div>
         <dt>板数</dt>
@@ -144,6 +184,8 @@ function saveNote() {
         </dd>
       </div>
     </dl>
+
+    <p v-if="factsNote" class="facts-note" role="status">数据缺口：{{ factsNote }}</p>
 
     <div v-if="row.status === 'broken'" class="notice notice--warn">
       <AppIcon name="alert-triangle" :size="15" />
@@ -230,7 +272,9 @@ function saveNote() {
           </template>
         </section>
 
-        <p class="data-gap">封单额与换手率暂无数据。</p>
+        <p class="data-gap">
+          封单额旧源未提供（涨停记录只有封板时间），不做估算；换手率、市值与成交量见上方数据库字段。
+        </p>
       </div>
 
       <aside class="detail-side">
@@ -577,6 +621,17 @@ function saveNote() {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.facts-note {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .same-sector {

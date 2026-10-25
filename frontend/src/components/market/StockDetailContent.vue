@@ -23,12 +23,12 @@ const {
   stockSeries,
   stockLoading,
   stockFailure,
-  profile: stockProfile,
-  profileLoading,
-  profileFailure,
+  facts,
+  factsLoading,
+  factsFailure,
   load,
   retrySeries,
-  retryProfile,
+  retryFacts,
   clear,
 } = useStockDetail(
   async (row, windowMax, signal) =>
@@ -46,11 +46,11 @@ const {
         }),
       { access: 'read', signal },
     ),
-  async (symbol, signal) =>
+  async (symbol, tradingDay, signal) =>
     callApi(
       (requestSignal) =>
-        api.GET('/api/v1/market/stock-profile', {
-          params: { query: { symbol } },
+        api.GET('/api/v1/market/review/stock-facts', {
+          params: { query: { symbol, date: tradingDay } },
           signal: requestSignal,
         }),
       { access: 'read', signal },
@@ -120,11 +120,10 @@ function requestIntraday() {
     :stock-loading="stockLoading"
     :stock-failure="stockFailure ? failureText(stockFailure) : null"
     :stock-request-id="stockFailure?.requestId"
-    :industry="stockProfile?.industry ?? null"
-    :industry-provider="stockProfile?.provider ?? null"
-    :industry-loading="profileLoading"
-    :industry-failure="profileFailure ? failureText(profileFailure) : null"
-    :industry-request-id="profileFailure?.requestId"
+    :facts="facts"
+    :facts-loading="factsLoading"
+    :facts-failure="factsFailure ? failureText(factsFailure) : null"
+    :facts-request-id="factsFailure?.requestId"
     :intraday-bars="intradayBars"
     :intraday-trading-day="intradayTradingDay"
     :intraday-loading="intradayLoading"
@@ -133,7 +132,7 @@ function requestIntraday() {
     @save-note="emit('save-note', $event)"
     @select="emit('select', $event)"
     @retry-stock="retrySeries"
-    @retry-industry="retryProfile"
+    @retry-facts="retryFacts"
     @request-intraday="requestIntraday"
     @retry-intraday="retryIntraday"
   />

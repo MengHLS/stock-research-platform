@@ -9,7 +9,10 @@ import {
   compareClass,
   emotionRating,
   findPriceExtremes,
+  formatMarketCapCny,
   formatSignedPercent,
+  formatTurnoverPct,
+  formatVolumeLots,
   heatmapDatesNewestFirst,
   parseReviewWindow,
   previousHistory,
@@ -58,6 +61,19 @@ describe('review presentation model', () => {
     expect(formatSignedPercent('0')).toBe('0.00%')
     expect(chartNumber(null)).toBeNull()
     expect(chartNumber('0')).toBe(0)
+  })
+
+  it('formats database valuation fields without inventing zeroes', () => {
+    expect(formatMarketCapCny('120000000000.00')).toBe('1200.00 亿')
+    expect(formatMarketCapCny('612000500.00')).toBe('6.12 亿')
+    expect(formatMarketCapCny('1250000')).toBe('125.00 万')
+    expect(formatMarketCapCny('999')).toBe('999.00 元')
+    expect(formatMarketCapCny(null)).toBe('—')
+    expect(formatTurnoverPct('4.12')).toBe('4.12%')
+    expect(formatTurnoverPct(null)).toBe('—')
+    expect(formatVolumeLots('52345678.00')).toBe('52.35 万手')
+    expect(formatVolumeLots('523400')).toBe('5234.00 手')
+    expect(formatVolumeLots(null)).toBe('—')
   })
 
   it('finds the actual previous row in date order', () => {

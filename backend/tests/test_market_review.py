@@ -25,7 +25,10 @@ from research_platform.modules.market.review import (
     MarketWideRow,
     ReviewDateCoverage,
     StockBar,
+    StockIndustryAssignment,
+    StockLiquidity,
     StockQuote,
+    StockTrade,
 )
 from research_platform.modules.market.state_description import MarketStateLimitCounts
 
@@ -70,6 +73,14 @@ class FakeReviewSource:
             self.days = sorted({date(2026, 9, 15), *self.days})
         self.quote_calls = 0
         self.stock_bar_calls = 0
+        self.industry_available: bool | None = None
+        self.liquidity: bool | None = None
+        self.trade: bool | None = None
+        self.turnover_pct: Decimal | None = Decimal("4.12")
+        self.total_market_cap_cny: Decimal | None = Decimal("120000000000.00")
+        self.circulation_market_cap_cny: Decimal | None = Decimal("95000000000.00")
+        self.volume_lots: Decimal | None = Decimal("523456.78")
+        self.amount_1000cny: Decimal | None = Decimal("612000.50")
 
     def trading_days(self, start: date, end: date) -> list[date]:
         return [day for day in self.days if start <= day <= end]
@@ -188,6 +199,41 @@ class FakeReviewSource:
                     )
                 )
         return rows
+
+    def stock_industry(self, symbol: str, as_of: date) -> StockIndustryAssignment | None:
+        if self.industry_available is False:
+            return None
+        return StockIndustryAssignment(
+            symbol=symbol,
+            code="C39",
+            name="计算机、通信和其他电子设备制造业",
+            source="baostock",
+            effective_from=date(2026, 8, 31),
+            effective_to=None,
+        )
+
+    def stock_liquidity(self, symbol: str, trading_day: date) -> StockLiquidity | None:
+        if self.liquidity is False:
+            return None
+        return StockLiquidity(
+            symbol=symbol,
+            trading_day=trading_day,
+            turnover_pct=self.turnover_pct,
+            total_market_cap_cny=self.total_market_cap_cny,
+            circulation_market_cap_cny=self.circulation_market_cap_cny,
+            source="baostock-daily",
+        )
+
+    def stock_trade(self, symbol: str, trading_day: date) -> StockTrade | None:
+        if self.trade is False:
+            return None
+        return StockTrade(
+            symbol=symbol,
+            trading_day=trading_day,
+            volume_lots=self.volume_lots,
+            amount_1000cny=self.amount_1000cny,
+            source="tushare",
+        )
 
 
 class FakeIndexSupplement:
@@ -500,6 +546,143 @@ def test_stock_series_preserves_gaps_and_uses_hidden_history_for_moving_averages
     series = service(complete).stock_series("000001.SZ", target, 1)
     assert [bar.date for bar in series.bars] == [target]
     assert series.bars[0].ma20 == Decimal("19.70")
+
+
+def test_stock_facts_read_industry_valuation_and_volume_from_the_source():
+    source = FakeReviewSource()
+
+    facts = service(source).stock_facts("sz000001", date(2026, 9, 18))
+
+    assert facts.symbol == "000001.SZ"
+    assert facts.date == date(2026, 9, 18)
+    assert facts.industry is not None
+    assert facts.industry.name == "计算机、通信和其他电子设备制造业"
+    assert facts.industry.code == "C39"
+    assert facts.industry.effective_from == date(2026, 8, 31)
+    assert facts.industry.effective_to is None
+    assert facts.valuation.turnover_pct == Decimal("4.12")
+    assert facts.valuation.total_market_cap_cny == Decimal("120000000000.00")
+    assert facts.valuation.circulation_market_cap_cny == Decimal("95000000000.00")
+    assert facts.valuation.unknown_fields == []
+    # Source stores volume in lots (手) and amount in thousand CNY; the API exposes shares/CNY.
+    assert facts.trade.volume_shares == Decimal("52345678.00")
+    assert facts.trade.amount_cny == Decimal("612000500.00")
+    assert facts.trade.unknown_fields == []
+    assert not {issue.code for issue in facts.issues} & {
+        "stock_industry_missing",
+        "stock_liquidity_missing",
+        "stock_turnover_missing",
+        "stock_market_cap_missing",
+        "stock_trade_missing",
+    }
+
+
+def test_stock_facts_keep_missing_source_rows_null_with_reasons():
+    source = FakeReviewSource()
+    source.industry_available = False
+    source.liquidity = False
+    source.trade = False
+
+    facts = service(source).stock_facts("000001.SZ", date(2026, 9, 18))
+
+    assert facts.industry is None
+    assert facts.valuation.turnover_pct is None
+    assert facts.valuation.total_market_cap_cny is None
+    assert facts.valuation.unknown_fields == [
+        "turnover_pct",
+        "total_market_cap_cny",
+        "circulation_market_cap_cny",
+    ]
+    assert facts.trade.volume_shares is None
+    assert facts.trade.amount_cny is None
+    assert facts.trade.unknown_fields == ["volume_shares", "amount_cny"]
+    codes = {issue.code for issue in facts.issues}
+    assert {
+        "stock_industry_missing",
+        "stock_liquidity_missing",
+        "stock_trade_missing",
+    } <= codes
+
+
+def test_stock_facts_report_empty_valuation_columns_without_zero_filling():
+    source = FakeReviewSource()
+    source.turnover_pct = None
+    source.total_market_cap_cny = None
+
+    facts = service(source).stock_facts("000001.SZ", date(2026, 9, 18))
+
+    assert facts.valuation.turnover_pct is None
+    assert facts.valuation.total_market_cap_cny is None
+    assert facts.valuation.circulation_market_cap_cny == Decimal("95000000000.00")
+    assert facts.valuation.unknown_fields == ["turnover_pct", "total_market_cap_cny"]
+    codes = {issue.code for issue in facts.issues}
+    assert {"stock_turnover_missing", "stock_market_cap_missing"} <= codes
+
+
+def test_stock_facts_reject_unknown_trading_day_and_bad_decimals():
+    source = FakeReviewSource()
+    with pytest.raises(DomainError) as missing_day:
+        service(source).stock_facts("000001.SZ", date(2026, 9, 20))
+    assert missing_day.value.code == "MARKET_REVIEW_DATE_UNAVAILABLE"
+
+    bad = FakeReviewSource()
+    bad.turnover_pct = Decimal("NaN")
+    with pytest.raises(DomainError) as bad_decimal:
+        service(bad).stock_facts("000001.SZ", date(2026, 9, 18))
+    assert bad_decimal.value.code == "MARKET_REVIEW_SOURCE_BAD_DATA"
+
+
+def test_stock_facts_are_cached_per_symbol_and_day():
+    source = FakeReviewSource()
+    review = service(source)
+
+    first = review.stock_facts("000001.SZ", date(2026, 9, 18))
+    second = review.stock_facts("000001.SZ", date(2026, 9, 18))
+    other_symbol = review.stock_facts("000002.SZ", date(2026, 9, 18))
+    other_day = review.stock_facts("000001.SZ", date(2026, 9, 17))
+
+    assert first is second
+    assert other_symbol is not first
+    assert other_symbol.symbol == "000002.SZ"
+    assert other_day is not first
+    assert other_day.date == date(2026, 9, 17)
+
+
+@pytest.mark.parametrize("field", ["code", "name", "source"])
+def test_stock_facts_keep_partial_industry_fields_without_losing_trade(field):
+    class PartialIndustry(FakeReviewSource):
+        def stock_industry(self, symbol, as_of):
+            return replace(super().stock_industry(symbol, as_of), **{field: None})
+
+    facts = service(PartialIndustry()).stock_facts("000001.SZ", date(2026, 9, 18))
+    assert facts.industry is not None
+    assert getattr(facts.industry, field) is None
+    assert facts.industry.unknown_fields == [field]
+    assert "stock_industry_missing" in {issue.code for issue in facts.issues}
+    assert facts.trade.volume_shares == Decimal("52345678.00")
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "turnover_pct",
+        "total_market_cap_cny",
+        "circulation_market_cap_cny",
+        "volume_lots",
+        "amount_1000cny",
+    ],
+)
+def test_stock_facts_reject_negative_metrics_but_preserve_real_zero(field):
+    source = FakeReviewSource()
+    setattr(source, field, Decimal("-1"))
+    with pytest.raises(DomainError) as invalid:
+        service(source).stock_facts("000001.SZ", date(2026, 9, 18))
+    assert invalid.value.code == "MARKET_REVIEW_SOURCE_BAD_DATA"
+
+    setattr(source, field, Decimal("0"))
+    facts = service(source).stock_facts("000001.SZ", date(2026, 9, 18))
+    assert facts.valuation.unknown_fields == []
+    assert facts.trade.unknown_fields == []
 
 
 @pytest.mark.parametrize(
@@ -985,6 +1168,118 @@ def test_legacy_source_reads_reviewed_columns_from_sqlite():
     engine.dispose()
 
 
+def test_legacy_source_reads_industry_liquidity_and_trade_by_effective_date():
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE industry_assignments (
+                    id INTEGER PRIMARY KEY,
+                    securityCode TEXT,
+                    industryCode TEXT,
+                    industryName TEXT,
+                    effectiveFrom TEXT,
+                    effectiveTo TEXT,
+                    source TEXT
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE liquidity_daily (
+                    id INTEGER PRIMARY KEY,
+                    securityCode TEXT,
+                    tradeDate TEXT,
+                    turnoverRate REAL,
+                    totalMarketCap REAL,
+                    circulationMarketCap REAL,
+                    source TEXT
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE stock_daily_prices (
+                    id INTEGER PRIMARY KEY,
+                    stockCode TEXT,
+                    tradeDate TEXT,
+                    volume TEXT,
+                    amount TEXT,
+                    source TEXT
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO industry_assignments
+                VALUES (1, '000001.SZ', 'J66', '货币金融服务', '2026-08-31', NULL, 'baostock'),
+                       (2, '000002.SZ', 'K70', '房地产业', '2026-08-31', '2026-09-10', 'baostock')
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO liquidity_daily
+                VALUES (1, '000001.SZ', '2026-09-18', 0.6533, 120000000000.0,
+                        95000000000.0, 'baostock-daily')
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO stock_daily_prices
+                VALUES (1, '000001.SZ', '2026-09-18', '1267792.62', '1466720.68933', 'tushare')
+                """
+            )
+        )
+    source = LegacyMarketReviewSource(engine)
+
+    industry = source.stock_industry("000001.SZ", date(2026, 9, 18))
+    assert industry is not None
+    assert (industry.code, industry.name, industry.source) == (
+        "J66",
+        "货币金融服务",
+        "baostock",
+    )
+    assert source.stock_industry("000001.SZ", date(2026, 8, 30)) is None
+    assert source.stock_industry("000001.SZ", date(2026, 9, 20)) is not None
+    assert source.stock_industry("000002.SZ", date(2026, 9, 10)) is not None
+    assert source.stock_industry("000002.SZ", date(2026, 9, 11)) is None
+    assert source.stock_industry("999999.SZ", date(2026, 9, 18)) is None
+
+    liquidity = source.stock_liquidity("000001.SZ", date(2026, 9, 18))
+    assert liquidity is not None
+    assert liquidity.turnover_pct == Decimal("0.6533")
+    assert liquidity.total_market_cap_cny == Decimal("120000000000.0")
+    assert liquidity.circulation_market_cap_cny == Decimal("95000000000.0")
+    assert source.stock_liquidity("000001.SZ", date(2026, 10, 19)) is None
+
+    trade = source.stock_trade("000001.SZ", date(2026, 9, 18))
+    assert trade is not None
+    assert trade.volume_lots == Decimal("1267792.62")
+    assert trade.amount_1000cny == Decimal("1466720.68933")
+    assert source.stock_trade("000001.SZ", date(2026, 9, 21)) is None
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE industry_assignments SET industryName='', source=NULL WHERE id=1")
+        )
+    partial = source.stock_industry("000001.SZ", date(2026, 9, 18))
+    assert partial is not None
+    assert partial.name is None
+    assert partial.source is None
+    assert partial.code == "J66"
+    engine.dispose()
+
+
 def test_legacy_source_schema_failure_maps_to_unavailable():
     engine = create_engine("sqlite://")
     source = LegacyMarketReviewSource(engine)
@@ -1108,6 +1403,10 @@ def test_review_api_dates_and_indices_contract(database_url):
             "/api/v1/market/review/stock-series",
             params={"symbol": "000001.SZ", "date": "2026-09-18", "window": 4},
         )
+        stock_facts = client.get(
+            "/api/v1/market/review/stock-facts",
+            params={"symbol": "000001.SZ", "date": "2026-09-18"},
+        )
     assert dates.status_code == 200
     assert dates.json()["dates"][-1]["limit_up"]["completeness"] == "presence_only"
     assert dates.json()["dates"][-1]["market_state_counts"]["status"] == "available"
@@ -1125,6 +1424,15 @@ def test_review_api_dates_and_indices_contract(database_url):
     assert stock_series.status_code == 200
     assert stock_series.json()["missing_days"] == 0
     assert "502" in schema["paths"]["/api/v1/market/review/stock-series"]["get"]["responses"]
+    assert stock_facts.status_code == 200
+    facts_body = stock_facts.json()
+    assert facts_body["symbol"] == "000001.SZ"
+    assert facts_body["industry"]["name"] == "计算机、通信和其他电子设备制造业"
+    assert facts_body["valuation"]["turnover_pct"] == "4.12"
+    assert facts_body["valuation"]["total_market_cap_cny"] == "120000000000.00"
+    assert facts_body["trade"]["volume_shares"] == "52345678.00"
+    assert facts_body["trade"]["amount_cny"] == "612000500.00"
+    assert "502" in schema["paths"]["/api/v1/market/review/stock-facts"]["get"]["responses"]
     assert [item["symbol"] for item in indices.json()["indices"]] == [
         "000001.SH",
         "399001.SZ",

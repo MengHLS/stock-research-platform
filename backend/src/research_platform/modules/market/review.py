@@ -44,7 +44,11 @@ from .review_schemas import (
     ReviewMethodologyRead,
     ReviewOverviewRead,
     ReviewStockBarRead,
+    ReviewStockFactsRead,
+    ReviewStockIndustryRead,
     ReviewStockSeriesRead,
+    ReviewStockTradeRead,
+    ReviewStockValuationRead,
     ReviewSummaryRead,
     ThemeCountRead,
 )
@@ -129,6 +133,41 @@ class MarketWideRow:
 
 
 @dataclass(frozen=True)
+class StockIndustryAssignment:
+    """Industry classification effective on a review date (not the limit-up theme)."""
+
+    symbol: str
+    code: str | None
+    name: str | None
+    source: str | None
+    effective_from: date
+    effective_to: date | None
+
+
+@dataclass(frozen=True)
+class StockLiquidity:
+    """Per-stock turnover and market capitalization for one trading day."""
+
+    symbol: str
+    trading_day: date
+    turnover_pct: Decimal | None
+    total_market_cap_cny: Decimal | None
+    circulation_market_cap_cny: Decimal | None
+    source: str | None
+
+
+@dataclass(frozen=True)
+class StockTrade:
+    """Per-stock traded volume and amount for one trading day, in source units."""
+
+    symbol: str
+    trading_day: date
+    volume_lots: Decimal | None
+    amount_1000cny: Decimal | None
+    source: str | None
+
+
+@dataclass(frozen=True)
 class IndexBar:
     trading_day: date
     symbol: str
@@ -189,6 +228,12 @@ class ReviewSource(Protocol):
     def market_wide_rows(self, start: date, end: date) -> list[MarketWideRow]: ...
 
     def index_rows(self, start: date, end: date, symbols: list[str]) -> list[IndexBar]: ...
+
+    def stock_industry(self, symbol: str, as_of: date) -> StockIndustryAssignment | None: ...
+
+    def stock_liquidity(self, symbol: str, trading_day: date) -> StockLiquidity | None: ...
+
+    def stock_trade(self, symbol: str, trading_day: date) -> StockTrade | None: ...
 
 
 class ReviewIndexSupplement(Protocol):
@@ -313,6 +358,25 @@ class MarketReviewService:
                 lambda: self._stock_series(canonical, trading_day, window),
             )
         except DecimalException:
+            raise DomainError("MARKET_REVIEW_SOURCE_BAD_DATA") from None
+
+    def stock_facts(self, symbol: str, trading_day: date) -> ReviewStockFactsRead:
+        """Industry classification, valuation and traded volume for one review day.
+
+        Every value comes from the review database; a missing row or empty column
+        stays ``null`` with an explicit issue instead of an external lookup or a
+        historical proxy.
+        """
+
+        canonical = parse_symbol(symbol).display
+        key = ("market-review-stock-facts", REVIEW_VERSION, canonical, trading_day)
+        try:
+            return self._cache.get_or_create(
+                key,
+                self._config.cache_seconds,
+                lambda: self._stock_facts(canonical, trading_day),
+            )
+        except (DecimalException, ReviewSourceDataError):
             raise DomainError("MARKET_REVIEW_SOURCE_BAD_DATA") from None
 
     def _source_or_fail(self) -> ReviewSource:
@@ -795,6 +859,114 @@ class MarketReviewService:
             missing_days=missing_days,
             bars=bars,
             issues=issues,
+            methodology=ReviewMethodologyRead(),
+        )
+
+    def _stock_facts(self, symbol: str, trading_day: date) -> ReviewStockFactsRead:
+        source = self._source_or_fail()
+        if not source.trading_days(trading_day, trading_day):
+            raise DomainError("MARKET_REVIEW_DATE_UNAVAILABLE")
+
+        issues = list(SOURCE_ISSUES)
+        industry = source.stock_industry(symbol, trading_day)
+        if industry is None:
+            issues.append(_issue("stock_industry_missing", trading_day))
+            industry_read = None
+        else:
+            if (
+                industry.symbol != symbol
+                or _as_date(industry.effective_from) > trading_day
+                or (
+                    industry.effective_to is not None
+                    and _as_date(industry.effective_to) < trading_day
+                )
+            ):
+                raise ReviewSourceDataError("industry identity or date mismatch")
+            industry_unknown = [
+                field for field in ("code", "name", "source") if getattr(industry, field) is None
+            ]
+            if industry_unknown:
+                issues.append(_issue("stock_industry_missing", trading_day))
+            industry_read = ReviewStockIndustryRead(
+                code=industry.code,
+                name=industry.name,
+                source=industry.source,
+                effective_from=_as_date(industry.effective_from),
+                effective_to=_optional_as_date(industry.effective_to),
+                unknown_fields=industry_unknown,
+            )
+
+        liquidity = source.stock_liquidity(symbol, trading_day)
+        valuation_unknown: list[str] = []
+        turnover: Decimal | None = None
+        total_market_cap: Decimal | None = None
+        circulation_market_cap: Decimal | None = None
+        if liquidity is None:
+            valuation_unknown = [
+                "turnover_pct",
+                "total_market_cap_cny",
+                "circulation_market_cap_cny",
+            ]
+            issues.append(_issue("stock_liquidity_missing", trading_day))
+        else:
+            if liquidity.symbol != symbol or _as_date(liquidity.trading_day) != trading_day:
+                raise ReviewSourceDataError("liquidity identity or date mismatch")
+            turnover = _finite_decimal(liquidity.turnover_pct, "turnover_pct")
+            total_market_cap = _finite_decimal(liquidity.total_market_cap_cny, "total_market_cap")
+            circulation_market_cap = _finite_decimal(
+                liquidity.circulation_market_cap_cny, "circulation_market_cap"
+            )
+            if turnover is None:
+                valuation_unknown.append("turnover_pct")
+                issues.append(_issue("stock_turnover_missing", trading_day))
+            if total_market_cap is None or circulation_market_cap is None:
+                if total_market_cap is None:
+                    valuation_unknown.append("total_market_cap_cny")
+                if circulation_market_cap is None:
+                    valuation_unknown.append("circulation_market_cap_cny")
+                issues.append(_issue("stock_market_cap_missing", trading_day))
+
+        trade = source.stock_trade(symbol, trading_day)
+        trade_unknown: list[str] = []
+        volume_shares: Decimal | None = None
+        amount_cny: Decimal | None = None
+        if trade is None:
+            trade_unknown = ["volume_shares", "amount_cny"]
+            issues.append(_issue("stock_trade_missing", trading_day))
+            trade_source = None
+        else:
+            if trade.symbol != symbol or _as_date(trade.trading_day) != trading_day:
+                raise ReviewSourceDataError("trade identity or date mismatch")
+            volume_shares = _lots_to_shares(_finite_decimal(trade.volume_lots, "volume_lots"))
+            amount_cny = _thousand_cny_to_cny(_finite_decimal(trade.amount_1000cny, "amount"))
+            if volume_shares is None:
+                trade_unknown.append("volume_shares")
+            if amount_cny is None:
+                trade_unknown.append("amount_cny")
+            if trade_unknown:
+                issues.append(_issue("stock_trade_missing", trading_day))
+            trade_source = trade.source
+
+        return ReviewStockFactsRead(
+            symbol=symbol,
+            date=trading_day,
+            industry=industry_read,
+            valuation=ReviewStockValuationRead(
+                date=trading_day,
+                turnover_pct=turnover,
+                total_market_cap_cny=total_market_cap,
+                circulation_market_cap_cny=circulation_market_cap,
+                source=liquidity.source if liquidity is not None else None,
+                unknown_fields=valuation_unknown,
+            ),
+            trade=ReviewStockTradeRead(
+                date=trading_day,
+                volume_shares=volume_shares,
+                amount_cny=amount_cny,
+                source=trade_source,
+                unknown_fields=trade_unknown,
+            ),
+            issues=_dedupe_issues(issues),
             methodology=ReviewMethodologyRead(),
         )
 
@@ -1336,6 +1508,15 @@ def _issue(code: str, scope: date) -> ReviewIssueRead:
         "history_window_truncated": "历史查询窗口不足以确认部分连板高度。",
         "index_history_missing": "目标历史窗口内存在缺失的指数日线。",
         "stock_history_missing": "目标历史窗口内存在缺失的个股日线。",
+        "stock_industry_missing": (
+            "旧库缺少该股票在观察日生效的行业归属或部分行业字段，缺失项保持未知。"
+        ),
+        "stock_liquidity_missing": (
+            "旧库流动性日线在该交易日没有该股票记录，换手率与市值保持未知。"
+        ),
+        "stock_turnover_missing": "该股票当日流动性记录缺少换手率，保持未知。",
+        "stock_market_cap_missing": "流动性记录缺少流通市值或总市值，市值保持未知。",
+        "stock_trade_missing": "旧库个股日线在该交易日缺少成交量或成交额，保持未知。",
     }
     return ReviewIssueRead(code=code, scope=scope.isoformat(), message=messages[code])
 
@@ -1450,6 +1631,34 @@ def _as_date(value: date) -> date:
     if isinstance(value, date):
         return value
     raise ReviewSourceDataError("invalid date")
+
+
+def _optional_as_date(value: date | None) -> date | None:
+    return None if value is None else _as_date(value)
+
+
+def _finite_decimal(value: Decimal | None, field: str) -> Decimal | None:
+    if value is None:
+        return None
+    if not isinstance(value, Decimal) or not value.is_finite() or value < 0:
+        raise ReviewSourceDataError(f"invalid non-negative decimal: {field}")
+    return value
+
+
+def _lots_to_shares(value: Decimal | None) -> Decimal | None:
+    """The legacy price table stores volume in lots (手); the API exposes shares."""
+
+    if value is None:
+        return None
+    return (value * Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _thousand_cny_to_cny(value: Decimal | None) -> Decimal | None:
+    """The legacy price table stores amount in thousand CNY; the API exposes CNY."""
+
+    if value is None:
+        return None
+    return (value * Decimal(1000)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _canonical_source_symbol(value: str) -> str:

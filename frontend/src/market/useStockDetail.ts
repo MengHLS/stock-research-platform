@@ -2,7 +2,7 @@ import { shallowRef } from 'vue'
 
 import type { ApiFailure, ApiResult } from '../api/client'
 import type { LimitUpReviewRow, ReviewStockSeries } from './review'
-import type { StockProfile } from './stock-profile'
+import type { ReviewStockFacts } from './stock-facts'
 
 type LoadSeries = (
   row: LimitUpReviewRow,
@@ -10,38 +10,42 @@ type LoadSeries = (
   signal: AbortSignal,
 ) => Promise<ApiResult<ReviewStockSeries>>
 
-type LoadProfile = (symbol: string, signal: AbortSignal) => Promise<ApiResult<StockProfile>>
+type LoadFacts = (
+  symbol: string,
+  tradingDay: string,
+  signal: AbortSignal,
+) => Promise<ApiResult<ReviewStockFacts>>
 
-export function useStockDetail(loadSeries: LoadSeries, loadProfile: LoadProfile) {
+export function useStockDetail(loadSeries: LoadSeries, loadFacts: LoadFacts) {
   const stockSeries = shallowRef<ReviewStockSeries | null>(null)
   const stockLoading = shallowRef(false)
   const stockFailure = shallowRef<ApiFailure | null>(null)
-  const profile = shallowRef<StockProfile | null>(null)
-  const profileLoading = shallowRef(false)
-  const profileFailure = shallowRef<ApiFailure | null>(null)
+  const facts = shallowRef<ReviewStockFacts | null>(null)
+  const factsLoading = shallowRef(false)
+  const factsFailure = shallowRef<ApiFailure | null>(null)
 
   let current: { row: LimitUpReviewRow; windowMax: number } | null = null
   let generation = 0
   let seriesToken = 0
-  let profileToken = 0
+  let factsToken = 0
   let seriesController: AbortController | null = null
-  let profileController: AbortController | null = null
+  let factsController: AbortController | null = null
 
   function clear() {
     generation += 1
     seriesToken += 1
-    profileToken += 1
+    factsToken += 1
     seriesController?.abort()
-    profileController?.abort()
+    factsController?.abort()
     seriesController = null
-    profileController = null
+    factsController = null
     current = null
     stockSeries.value = null
     stockFailure.value = null
     stockLoading.value = false
-    profile.value = null
-    profileFailure.value = null
-    profileLoading.value = false
+    facts.value = null
+    factsFailure.value = null
+    factsLoading.value = false
   }
 
   async function fetchSeries(row: LimitUpReviewRow, windowMax: number, requestGeneration: number) {
@@ -64,24 +68,24 @@ export function useStockDetail(loadSeries: LoadSeries, loadProfile: LoadProfile)
     else if (result.failure.kind !== 'aborted') stockFailure.value = result.failure
   }
 
-  async function fetchProfile(symbol: string, requestGeneration: number) {
-    profileController?.abort()
+  async function fetchFacts(symbol: string, tradingDay: string, requestGeneration: number) {
+    factsController?.abort()
     const controller = new AbortController()
-    profileController = controller
-    const requestToken = ++profileToken
-    profileLoading.value = true
-    profileFailure.value = null
-    const result = await loadProfile(symbol, controller.signal)
+    factsController = controller
+    const requestToken = ++factsToken
+    factsLoading.value = true
+    factsFailure.value = null
+    const result = await loadFacts(symbol, tradingDay, controller.signal)
     if (
       generation !== requestGeneration ||
-      requestToken !== profileToken ||
+      requestToken !== factsToken ||
       controller.signal.aborted
     ) {
       return
     }
-    profileLoading.value = false
-    if (result.ok) profile.value = result.data
-    else if (result.failure.kind !== 'aborted') profileFailure.value = result.failure
+    factsLoading.value = false
+    if (result.ok) facts.value = result.data
+    else if (result.failure.kind !== 'aborted') factsFailure.value = result.failure
   }
 
   async function load(row: LimitUpReviewRow, windowMax: number) {
@@ -90,7 +94,7 @@ export function useStockDetail(loadSeries: LoadSeries, loadProfile: LoadProfile)
     const requestGeneration = generation
     await Promise.allSettled([
       fetchSeries(row, windowMax, requestGeneration),
-      fetchProfile(row.symbol, requestGeneration),
+      fetchFacts(row.symbol, row.date, requestGeneration),
     ])
   }
 
@@ -98,20 +102,20 @@ export function useStockDetail(loadSeries: LoadSeries, loadProfile: LoadProfile)
     if (current) void fetchSeries(current.row, current.windowMax, generation)
   }
 
-  function retryProfile() {
-    if (current) void fetchProfile(current.row.symbol, generation)
+  function retryFacts() {
+    if (current) void fetchFacts(current.row.symbol, current.row.date, generation)
   }
 
   return {
     stockSeries,
     stockLoading,
     stockFailure,
-    profile,
-    profileLoading,
-    profileFailure,
+    facts,
+    factsLoading,
+    factsFailure,
     load,
     retrySeries,
-    retryProfile,
+    retryFacts,
     clear,
   }
 }
