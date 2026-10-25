@@ -223,6 +223,14 @@ describe('limit-up stock detail database facts', () => {
     expect(html).toContain('重试行业与量价')
   })
 
+  it('keeps secondary facts collapsed and shows the 120-day chart scope', async () => {
+    const html = await renderToString(createSSRApp(LimitUpDetail, props()))
+    expect(html).toMatch(/<details class="facts-more"[^>]*>/)
+    expect(html).not.toMatch(/<details[^>]*open/)
+    expect(html).toContain('日 K · 最多 120 个交易日')
+    expect(html).not.toContain('一字板判定')
+  })
+
   it('offers daily and latest-intraday chart modes in the same area', async () => {
     const html = await renderToString(createSSRApp(LimitUpDetail, props()))
 
@@ -254,8 +262,11 @@ describe('limit-up stock detail database facts', () => {
     expect(html).toContain('历史首板事件分类')
     expect(html).toContain('FBC-12')
     expect(html).toContain('高位上升趋势短期延续背景首板')
-    expect(html).toContain('短期向上延续')
-    expect(html).toContain('首板涨停')
+    expect(html).not.toContain('短期向上延续')
+    expect(html).not.toContain('60 日位置')
+    expect(html).not.toContain('G5-H')
+    expect(html).toContain('aria-label="历史首板事件列表"')
+    expect(html).toContain('tabindex="0"')
     expect(html).toContain('当前复盘日')
     expect(html).toContain('status--up')
     expect(html).not.toContain('同日同题材')

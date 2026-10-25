@@ -38,7 +38,7 @@ const {
             query: {
               symbol: row.symbol,
               date: row.date,
-              window: Math.min(60, Math.max(1, windowMax)),
+              window: Math.min(120, Math.max(1, windowMax)),
             },
           },
           signal: requestSignal,
@@ -103,7 +103,7 @@ watch(
   () => [props.row.symbol, props.row.date, props.windowMax] as const,
   () => {
     resetIntraday()
-    void load(props.row, props.windowMax ?? 60)
+    void load(props.row, props.windowMax ?? 120)
     void loadFirstBoardEvents(props.row.symbol)
   },
   { immediate: true },

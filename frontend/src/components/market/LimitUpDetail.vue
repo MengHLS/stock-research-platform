@@ -4,14 +4,7 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from '../AppIcon'
 import IntradayChart from './IntradayChart.vue'
 import StockDailyKline from './StockDailyKline.vue'
-import {
-  SHORT_PATH_OPTIONS,
-  TREND_OPTIONS,
-  positionBandLabel,
-  type FirstBoardHistory,
-  type FirstBoardShortPath,
-  type FirstBoardTrend,
-} from '../../market/first-board-classifier'
+import type { FirstBoardHistory } from '../../market/first-board-classifier'
 import type { IntradayBar } from '../../market/intraday'
 import type { LimitUpReviewRow, ReviewStockSeries } from '../../market/review'
 import {
@@ -89,12 +82,6 @@ const firstBoardRange = computed(() => {
   if (!firstBoardHistory.value.length) return ''
   return `${firstBoardHistory.value.at(-1)?.event_date} ～ ${firstBoardHistory.value[0].event_date}`
 })
-function trendLabel(value: FirstBoardTrend): string {
-  return TREND_OPTIONS.find((option) => option.value === value)?.label ?? '未知'
-}
-function shortPathLabel(value: FirstBoardShortPath): string {
-  return SHORT_PATH_OPTIONS.find((option) => option.value === value)?.label ?? '未知'
-}
 watch(
   () => [props.row.date, props.row.symbol, props.row.status, props.note],
   () => {
@@ -146,43 +133,26 @@ function saveNote() {
 
     <dl class="facts">
       <div>
-        <dt>代码</dt>
-        <dd class="mono">{{ row.symbol }}</dd>
-      </div>
-      <div>
         <dt>题材</dt>
         <dd>{{ row.sector }}</dd>
       </div>
       <div>
         <dt>行业</dt>
-        <dd :title="factsFailure ?? undefined">
+        <dd :title="industryName">
           {{ factsLoading && !facts ? '读取中…' : industryName }}
         </dd>
-        <small v-if="industryMeta">{{ industryMeta }}</small>
-        <template v-if="!factsLoading && factsFailure">
-          <small class="fact-error">{{ factsFailure }}</small>
-          <small v-if="factsRequestId">请求编号 {{ factsRequestId }}</small>
-          <button type="button" class="fact-retry" @click="emit('retry-facts')">
-            重试行业与量价
-          </button>
-        </template>
       </div>
       <div>
         <dt>公司市值</dt>
         <dd>{{ formatMarketCapCny(facts?.valuation.total_market_cap_cny) }}</dd>
-        <small>流通 {{ formatMarketCapCny(facts?.valuation.circulation_market_cap_cny) }}</small>
       </div>
       <div>
         <dt>换手率</dt>
         <dd>{{ formatTurnoverPct(facts?.valuation.turnover_pct) }}</dd>
-        <small v-if="facts?.valuation.source">{{ facts.valuation.source }}</small>
       </div>
       <div>
         <dt>成交量</dt>
         <dd>{{ formatVolumeLots(facts?.trade.volume_shares) }}</dd>
-        <small v-if="facts?.trade.amount_cny !== undefined">
-          成交额 {{ formatMarketCapCny(facts?.trade.amount_cny) }}
-        </small>
       </div>
       <div>
         <dt>板数</dt>
@@ -197,23 +167,27 @@ function saveNote() {
         <dt>当日涨跌</dt>
         <dd :class="compareClass(row.change_pct)">{{ formatSignedPercent(row.change_pct) }}</dd>
       </div>
-      <div>
-        <dt>一字板判定</dt>
-        <dd>
-          {{
-            row.status === 'broken'
-              ? '不适用（断板）'
-              : row.one_word_board === null
-                ? '未知'
-                : row.one_word_board
-                  ? '是'
-                  : '否'
-          }}
-        </dd>
-      </div>
     </dl>
 
-    <p v-if="factsNote" class="facts-note" role="status">数据缺口：{{ factsNote }}</p>
+    <div v-if="factsFailure" class="facts-failure" role="alert">
+      <span>{{ factsFailure }}</span>
+      <small v-if="factsRequestId">请求编号 {{ factsRequestId }}</small>
+      <button type="button" class="fact-retry" @click="emit('retry-facts')">重试行业与量价</button>
+    </div>
+    <details class="facts-more">
+      <summary>数据说明<span v-if="factsNote"> · 部分数据缺失</span></summary>
+      <div>
+        <p v-if="industryMeta">行业：{{ industryMeta }}</p>
+        <p>
+          流通 {{ formatMarketCapCny(facts?.valuation.circulation_market_cap_cny) }} · 成交额
+          {{ formatMarketCapCny(facts?.trade.amount_cny) }}
+        </p>
+        <p v-if="facts?.valuation.source">换手率 / 市值来源：{{ facts.valuation.source }}</p>
+        <p v-if="facts?.trade.source">成交量 / 成交额来源：{{ facts.trade.source }}</p>
+        <p v-if="factsNote" role="status">数据缺口：{{ factsNote }}</p>
+        <p>封单额未提供；日 K 按数据源价格展示，复权口径未确认。</p>
+      </div>
+    </details>
 
     <div v-if="row.status === 'broken'" class="notice notice--warn">
       <AppIcon name="alert-triangle" :size="15" />
@@ -233,7 +207,7 @@ function saveNote() {
           <div class="section-title">
             <div>
               <h3>个股走势</h3>
-              <p v-if="chartMode === 'daily'">日 K · 按数据源价格展示，复权口径未确认</p>
+              <p v-if="chartMode === 'daily'">日 K · 最多 120 个交易日</p>
               <p v-else>最近分时 · {{ intradayTradingDay ?? '读取最近交易日' }} · 1 分钟</p>
             </div>
             <div class="chart-controls">
@@ -299,10 +273,6 @@ function saveNote() {
             </div>
           </template>
         </section>
-
-        <p class="data-gap">
-          封单额旧源未提供（涨停记录只有封板时间），不做估算；换手率、市值与成交量见上方数据库字段。
-        </p>
       </div>
 
       <aside class="detail-side">
@@ -314,10 +284,6 @@ function saveNote() {
                 {{ firstBoardHistory.length }} 次 · {{ firstBoardRange }}
               </p>
             </div>
-            <span v-if="firstBoardEvents">
-              冻结 {{ firstBoardEvents.source.frozen_dataset_version_id ?? '不可用' }} · 入库
-              {{ firstBoardEvents.source.stored_event_count }}
-            </span>
           </div>
           <div v-if="firstBoardLoading" class="event-state">
             正在读取 {{ row.symbol }} 的历史首板…
@@ -349,57 +315,25 @@ function saveNote() {
               <span>冻结历史当前不可用，仅显示平台已入库事件。</span>
               <button type="button" @click="emit('retry-first-board')">重试事件分析</button>
             </div>
-            <article
-              v-for="item in firstBoardHistory"
-              :key="item.event_id"
-              class="event-row"
-              :class="{ 'event-row--current': item.event_date === row.date }"
-            >
-              <header>
-                <time>{{ item.event_date }}</time>
-                <span class="limit-up-mark">首板涨停</span>
-                <span class="source-mark">
-                  {{ item.source_kind === 'stored' ? '平台入库' : '冻结历史' }}
-                </span>
-                <span v-if="item.quality_status !== 'COMPLETE'" class="quality-mark">
-                  信息不足
-                </span>
-                <span v-if="item.event_date === row.date" class="current-mark">当前复盘日</span>
-              </header>
-              <strong>
-                {{ item.class_code ?? '待核对' }} ·
-                {{ item.class_name ?? '不支持的背景轴组合' }}
-              </strong>
-              <p>{{ item.group_code ?? '—' }} · {{ item.group_name ?? '分类信息不足' }}</p>
-              <dl>
-                <div>
-                  <dt>位置</dt>
-                  <dd>{{ positionBandLabel(item.position_band) }}</dd>
-                </div>
-                <div>
-                  <dt>趋势</dt>
-                  <dd>{{ trendLabel(item.trend) }}</dd>
-                </div>
-                <div>
-                  <dt>短期路径</dt>
-                  <dd>{{ shortPathLabel(item.short_path) }}</dd>
-                </div>
-              </dl>
-              <footer>
-                <span>
-                  60 日位置
-                  {{
-                    item.position_60d_pct === null
-                      ? '未知'
-                      : `${Number(item.position_60d_pct).toFixed(2)}%`
-                  }}
-                </span>
-                <code>{{ item.source_detail_code ?? '—' }}</code>
-              </footer>
-            </article>
-            <p class="event-source">
-              合并已验证冻结历史与平台当前入库快照 · 仅描述 T-1 背景，不预示后续收益
-            </p>
+            <div class="event-list" role="region" aria-label="历史首板事件列表" tabindex="0">
+              <article
+                v-for="item in firstBoardHistory"
+                :key="item.event_id"
+                class="event-row"
+                :class="{ 'event-row--current': item.event_date === row.date }"
+              >
+                <header>
+                  <time>{{ item.event_date }}</time>
+                  <span v-if="item.quality_status !== 'COMPLETE'" class="quality-mark">
+                    信息不足
+                  </span>
+                  <span v-if="item.event_date === row.date" class="current-mark">当前复盘日</span>
+                </header>
+                <strong>
+                  {{ item.class_code ?? '待核对' }} · {{ item.class_name ?? '分类信息不足' }}
+                </strong>
+              </article>
+            </div>
           </template>
           <p v-else-if="firstBoardEvents?.source.frozen_status === 'PASS'" class="side-empty">
             该股票在已验证首板账本和当前入库快照中没有历史事件。
@@ -419,7 +353,7 @@ function saveNote() {
           </div>
           <textarea
             v-model="draft"
-            rows="4"
+            rows="2"
             maxlength="2000"
             placeholder="例如：封板后开板放量，次日只观察竞价承接；不要把这条备注当作交易指令。"
           />
@@ -436,7 +370,7 @@ function saveNote() {
 <style scoped>
 .detail {
   display: grid;
-  gap: 16px;
+  gap: 10px;
 }
 
 .detail-head {
@@ -490,39 +424,57 @@ function saveNote() {
 
 .facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px 14px;
   margin: 0;
 }
 
-.facts div {
+.facts > div {
   min-width: 0;
-  padding: 10px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface2);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+  padding: 5px 0;
 }
 
 .facts dt {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 11px;
+  flex: none;
 }
-
 .facts dd {
-  margin: 3px 0 0;
+  margin: 0;
+  min-width: 0;
   color: var(--fg);
-  font-size: 14.5px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
-
 .facts small {
-  display: block;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 10px;
 }
-
-.facts .fact-error {
+.facts-more {
+  color: var(--muted);
+  font-size: 11px;
+}
+.facts-more summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.facts-more > div {
+  padding: 5px 0;
+  line-height: 1.5;
+}
+.facts-more p {
+  margin: 3px 0;
+}
+.facts-failure {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   color: var(--warn);
+  font-size: 11px;
 }
 
 .fact-retry {
@@ -541,7 +493,7 @@ function saveNote() {
 }
 
 .notice {
-  padding: 10px 12px;
+  padding: 6px 9px;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: flex-start;
@@ -695,7 +647,7 @@ function saveNote() {
 
 .note-section textarea {
   width: 100%;
-  min-height: 104px;
+  min-height: 64px;
   padding: 10px 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -735,24 +687,6 @@ function saveNote() {
   font-size: 11.5px;
 }
 
-.data-gap {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.facts-note {
-  margin: 0;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface2);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.55;
-}
-
 .event-history {
   display: grid;
   gap: 9px;
@@ -762,8 +696,23 @@ function saveNote() {
   margin-bottom: 3px;
 }
 
+.event-list {
+  min-height: 0;
+  max-height: clamp(160px, 36dvh, 300px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  display: grid;
+  gap: 6px;
+  padding: 0 3px 2px 0;
+}
+.event-list:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .event-row {
-  padding: 10px;
+  padding: 7px 9px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface2);
@@ -788,24 +737,11 @@ function saveNote() {
   font: 11px var(--mono);
 }
 
-.limit-up-mark,
-.source-mark,
 .quality-mark,
 .current-mark {
   padding: 2px 6px;
   border-radius: 999px;
   font-size: 9.5px;
-}
-
-.limit-up-mark {
-  background: color-mix(in oklab, var(--up) 80%, #000);
-  color: #fff;
-  font-weight: 650;
-}
-
-.source-mark {
-  border: 1px solid var(--border2);
-  color: var(--muted);
 }
 
 .quality-mark {
@@ -820,62 +756,10 @@ function saveNote() {
 
 .event-row > strong {
   display: block;
-  margin-top: 7px;
+  margin-top: 4px;
   color: var(--fg);
   font-size: 12px;
   line-height: 1.45;
-}
-
-.event-row > p {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.event-row dl {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 5px;
-  margin: 8px 0 0;
-}
-
-.event-row dl div {
-  min-width: 0;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-}
-
-.event-row dt {
-  color: var(--muted);
-  font-size: 9px;
-}
-
-.event-row dd {
-  margin: 2px 0 0;
-  color: var(--fg2);
-  font-size: 9.5px;
-  line-height: 1.35;
-}
-
-.event-row footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 9.5px;
-}
-
-.event-row code {
-  color: var(--accent);
-  font-family: var(--mono);
-}
-
-.event-source {
-  margin: 0;
-  color: var(--muted);
-  font-size: 9.5px;
-  line-height: 1.55;
 }
 
 .event-source-warning {
@@ -983,10 +867,6 @@ function saveNote() {
 @media (max-width: 560px) {
   .facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .event-row dl {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .save {
