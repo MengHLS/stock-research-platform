@@ -43,6 +43,8 @@ from research_platform.modules.market.service import MarketService
 from research_platform.modules.market.state_description import MarketStateDescriptionService
 from research_platform.modules.market.state_source import FrozenMarketStateSource
 from research_platform.modules.market.tencent_global import TencentGlobalSource
+from research_platform.modules.research.dataset_source import FrozenFirstBoardDatasetSource
+from research_platform.modules.research.router import router as research_router
 
 SessionDep = Annotated[Session, Depends(session_dependency)]
 
@@ -131,6 +133,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         FrozenMarketStateSource(settings.market_state.root) if settings.market_state else None,
         settings.market_state,
     )
+    app.state.first_board_dataset = (
+        FrozenFirstBoardDatasetSource(
+            settings.first_board_dataset.root,
+        )
+        if settings.first_board_dataset
+        else None
+    )
     install_error_handlers(app)
     # Added last so it is outermost: ids exist before any handler or route runs.
     app.add_middleware(RequestContextMiddleware)
@@ -168,4 +177,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(execution_router)
     app.include_router(identity_router)
     app.include_router(market_router)
+    app.include_router(research_router)
     return app

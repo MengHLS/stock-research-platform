@@ -1101,6 +1101,39 @@ def review_counts(action: str, *, days: int | None = None, as_of: str | None = N
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def first_board_classifier(action: str) -> None:
+    """Verify and summarize the configured frozen first-board event ledger."""
+    from research_platform.core.config import Settings
+    from research_platform.modules.research.dataset_source import (
+        FrozenFirstBoardDatasetSource,
+        source_or_error,
+    )
+
+    settings = Settings()
+    if action != "verify":
+        raise SystemExit(f"unknown first-board-classifier action: {action}")
+    if settings.first_board_dataset is None:
+        raise SystemExit("First-board dataset is not configured")
+    source = FrozenFirstBoardDatasetSource(settings.first_board_dataset.root)
+    dataset = source_or_error(source)
+    print(
+        json.dumps(
+            {
+                "status": "PASS",
+                "dataset_version_id": dataset.dataset_version_id,
+                "source_task_id": dataset.source_task_id,
+                "source_sha256": dataset.source_sha256,
+                "ledger_sha256": dataset.ledger_sha256,
+                "event_count": len(dataset.events),
+                "class_count": len(dataset.class_counts),
+                "class_counts": dataset.class_counts,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1118,6 +1151,7 @@ def main() -> None:
             "market-check",
             "market-state",
             "review-counts",
+            "first-board-classifier",
             "prototype",
             "identity",
             "icons",
@@ -1144,6 +1178,12 @@ def main() -> None:
         choices=["refresh", "status"],
         default="refresh",
         help="review-counts: backfill/refresh or inspect the derived daily counts",
+    )
+    parser.add_argument(
+        "--first-board-action",
+        choices=["verify"],
+        default="verify",
+        help="first-board-classifier: verify the frozen event ledger",
     )
     parser.add_argument("--days", type=int, help="review-counts refresh: trading days to recompute")
     parser.add_argument("--as-of", help="review-counts refresh: YYYY-MM-DD upper bound")
@@ -1203,6 +1243,8 @@ def main() -> None:
             days=args.days,
             as_of=args.as_of,
         )
+    elif args.task == "first-board-classifier":
+        first_board_classifier(args.first_board_action)
     elif args.task == "prototype":
         prototype(args.action, args.to)
     elif args.task == "icons":

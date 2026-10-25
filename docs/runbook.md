@@ -46,7 +46,7 @@ Agent 开始研究前先读首页并搜索主题目录；已有主题就更新�
 |---|---|---|
 | 应用库 app | 默认 `RP_DATABASE_URL` 指向本工程 SQLite；MySQL 使用 `RP_DATABASE_MYSQL__*` | 新系统业务数据，API/Worker/Alembic 共用；按运行/迁移职责最小授权 |
 | 研究源 source | `RP_SOURCE_MYSQL__*`，未配置即关闭 | 现有 MySQL/TiDB 的研究输入，必须使用数据库端专用 SELECT-only 账号；不绑定应用 ORM 或 Alembic |
-| 市场状态文件 market_state | `RP_MARKET_STATE__ROOT`，未配置即关闭 | 旧工程已验证的冻结日目录；只读校验 PASS 与 JSON 哈希，不查询数据库、不重算行情 |
+| 冻结交付文件 market_state / first_board_dataset | `RP_MARKET_STATE__ROOT` / `RP_FIRST_BOARD_DATASET__ROOT`，未配置即关闭 | 市场状态为旧工程冻结日目录；首板账本含 `summary.json`、`verification.json` 与事件 CSV。两者均只读校验 PASS/哈希，不查询业务库 |
 
 两套 MySQL 配置均含 HOST、PORT、DATABASE、USERNAME、PASSWORD、TLS、可选 CA_FILE、CONNECT_TIMEOUT 和 READ_TIMEOUT。PASSWORD 保持原值，由 URL.create 构造连接参数；无需手工拼接或 URL 转义。dotenv 中带 #、空格等字符的密码应加引号，容器环境变量则传原值。完整字段以 `.env.example` 和 Settings 为准。
 
@@ -65,7 +65,7 @@ uv run python tools/project.py db-check --target app
 # uv run python tools/project.py db-check --target source
 ```
 
-本地连开发服务器源库时，把 `RP_SOURCE_MYSQL__HOST/PORT` 设为本地转发地址（如 `127.0.0.1:13306`），设置 `RP_SOURCE_SSH_HOST` 与可选私钥；`source-db` 按该地址建隧道。服务器源库端口不要直接开放公网。
+本地连开发服务器源库时，把 `RP_SOURCE_MYSQL__HOST/PORT` 设为本地转发地址（如 `127.0.0.1:13306`），设置 `RP_SOURCE_SSH_HOST` 与可选私钥；`source-db` 按该地址建隧道。服务器源库端口不要直接开放公网。首板账本用 `RP_FIRST_BOARD_DATASET__ROOT` 指向 `FIRSTBOARD-DETAIL-CLASSES-V1-20261025`，再执行 `uv run python tools/project.py first-board-classifier --first-board-action verify`；服务校验可信源/账本双哈希、规范七组十六类、`eventId` 与证券日期绑定及逐行新旧分类，任一失败返回 502/503 且不发布部分结果。单事件试算的 `input_time_assurance=caller_declared` 不证明输入时点，`/events` 才使用已验证冻结账本；首次校验约数秒并进程内缓存，源目录更新需重启。
 
 db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 SELECT 1 连通检查，不建表、不扫描业务数据，也不证明只读授权、表结构或研究语义正确。源库权限由管理员核实实际授权及继承角色；不能通过尝试写生产表验证只读。TiDB 的普通 READ ONLY 事务声明并非可靠写保护，见[官方说明](https://docs.pingcap.com/tidbcloud/sql-statement-set-transaction/)。
 

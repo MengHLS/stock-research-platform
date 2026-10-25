@@ -83,6 +83,24 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
     "ENTRY_NOT_FOUND": ErrorSpec(
         "ENTRY_NOT_FOUND", 404, ErrorCategory.NOT_FOUND, "未找到该模式目录记录。"
     ),
+    "FIRST_BOARD_CLASSIFICATION_UNSUPPORTED": ErrorSpec(
+        "FIRST_BOARD_CLASSIFICATION_UNSUPPORTED",
+        422,
+        ErrorCategory.VALIDATION,
+        "该背景轴组合不在首板分类口径内。",
+    ),
+    "FIRST_BOARD_DATASET_UNAVAILABLE": ErrorSpec(
+        "FIRST_BOARD_DATASET_UNAVAILABLE",
+        503,
+        ErrorCategory.UNAVAILABLE,
+        "首板冻结事件数据暂不可用。",
+    ),
+    "FIRST_BOARD_DATASET_BAD_DATA": ErrorSpec(
+        "FIRST_BOARD_DATASET_BAD_DATA",
+        502,
+        ErrorCategory.UNAVAILABLE,
+        "首板冻结事件数据未通过完整性校验。",
+    ),
     "JOB_NOT_FOUND": ErrorSpec("JOB_NOT_FOUND", 404, ErrorCategory.NOT_FOUND, "未找到该作业。"),
     "ROUTE_NOT_FOUND": ErrorSpec("ROUTE_NOT_FOUND", 404, ErrorCategory.NOT_FOUND, "接口不存在。"),
     "IDEMPOTENCY_CONFLICT": ErrorSpec(

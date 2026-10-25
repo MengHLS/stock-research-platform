@@ -83,6 +83,12 @@ export const routes: RouteRecordRaw[] = [
     component: CatalogPage,
     meta: { title: '模式库', subtitle: '私人模式目录' },
   },
+  {
+    path: '/research/first-board-classifier',
+    name: 'first-board-classifier',
+    component: () => import('./pages/FirstBoardClassifierPage.vue'),
+    meta: { title: '首板背景分类', subtitle: '七组十六类、T-1 背景轴与旧码追溯' },
+  },
   planned('/research/discover', '挖掘流水线', '尚在开发：挖掘任务与候选策略。'),
   planned('/research/strategies', '策略管理', '尚在开发：策略与版本。'),
   planned('/research/screener', '选股', '尚在开发：选股与数据集。'),

@@ -151,6 +151,14 @@ class MarketStateConfig(BaseModel):
     cache_seconds: int = Field(default=60, ge=0, le=3600)
 
 
+class FirstBoardDatasetConfig(BaseModel):
+    """Read-only access to the verified first-board detail-class delivery."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    root: Path
+
+
 class TushareConfig(BaseModel):
     """Tushare token stays a secret: never logged, never returned to a client."""
 
@@ -230,6 +238,7 @@ class Settings(BaseSettings):
     review: ReviewConfig = ReviewConfig()
     review_counts: ReviewCountsConfig = ReviewCountsConfig()
     market_state: MarketStateConfig | None = None
+    first_board_dataset: FirstBoardDatasetConfig | None = None
     tushare: TushareConfig | None = None
     object_storage: ObjectStorageConfig | None = None
     auth: AuthConfig | None = None

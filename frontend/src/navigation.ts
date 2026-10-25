@@ -77,6 +77,13 @@ export const navGroups: NavGroup[] = [
         implemented: true,
       },
       {
+        path: '/research/first-board-classifier',
+        id: 'first-board-classifier',
+        name: '首板背景分类',
+        icon: 'target',
+        implemented: true,
+      },
+      {
         path: '/research/discover',
         id: 'discover',
         name: '挖掘流水线',

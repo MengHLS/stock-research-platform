@@ -536,6 +536,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/research/first-board-classifier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Catalog */
+        get: operations["get_first_board_classifier_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/research/first-board-classifier/classify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Classify First Board */
+        post: operations["classify_first_board_background"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/research/first-board-classifier/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List First Board Events */
+        get: operations["list_first_board_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -643,6 +694,110 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /** ClassRead */
+        ClassRead: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Group Code */
+            group_code: string;
+            /** Group Name */
+            group_name: string;
+            /** Source Detail Code */
+            source_detail_code: string;
+            /** Source Group Code */
+            source_group_code: string;
+            /** Condition */
+            condition: string;
+            /**
+             * Position Scope
+             * @enum {string}
+             */
+            position_scope: "high" | "mid_or_low" | "low" | "mid" | "any";
+            trend: components["schemas"]["Trend"] | null;
+            short_path: components["schemas"]["ShortPath"] | null;
+        };
+        /** ClassificationRead */
+        ClassificationRead: {
+            /**
+             * Taxonomy Version
+             * @default first-board-background-v1
+             * @constant
+             */
+            taxonomy_version: "first-board-background-v1";
+            /** Class Code */
+            class_code: string;
+            /** Class Name */
+            class_name: string;
+            /** Group Code */
+            group_code: string;
+            /** Group Name */
+            group_name: string;
+            /** Source Detail Code */
+            source_detail_code: string;
+            /** Position 60D Pct */
+            position_60d_pct: string | null;
+            position_band: components["schemas"]["PositionBand"];
+            trend: components["schemas"]["Trend"];
+            short_path: components["schemas"]["ShortPath"];
+            /**
+             * Classification Cutoff
+             * @default T-1
+             * @constant
+             */
+            classification_cutoff: "T-1";
+            /**
+             * Input Time Assurance
+             * @default caller_declared
+             * @constant
+             */
+            input_time_assurance: "caller_declared";
+            /**
+             * Uses Forward Data
+             * @default false
+             * @constant
+             */
+            uses_forward_data: false;
+            /** Explanation */
+            explanation: string;
+        };
+        /** ClassificationRequest */
+        ClassificationRequest: {
+            /** Position 60D Pct */
+            position_60d_pct?: number | string | null;
+            trend: components["schemas"]["Trend"];
+            short_path: components["schemas"]["ShortPath"];
+        };
+        /** ClassifierCatalogRead */
+        ClassifierCatalogRead: {
+            /**
+             * Taxonomy Version
+             * @default first-board-background-v1
+             * @constant
+             */
+            taxonomy_version: "first-board-background-v1";
+            /** Class Count */
+            class_count: number;
+            /** Group Count */
+            group_count: number;
+            /**
+             * Position Window Trading Days
+             * @default 60
+             * @constant
+             */
+            position_window_trading_days: 60;
+            /** Low Position Max Pct */
+            low_position_max_pct: string;
+            /** High Position Min Pct */
+            high_position_min_pct: string;
+            /** Groups */
+            groups: components["schemas"]["GroupRead"][];
+            /** Classes */
+            classes: components["schemas"]["ClassRead"][];
+            /** Notes */
+            notes: string[];
+        };
         /**
          * CoverageRead
          * @description Row presence, not proof that the source contains every expected row.
@@ -696,6 +851,25 @@ export interface components {
             bars: components["schemas"]["DailyBarRead"][];
             /** Total */
             total: number;
+        };
+        /** DatasetSourceRead */
+        DatasetSourceRead: {
+            /** Dataset Version Id */
+            dataset_version_id: number;
+            /** Source Task Id */
+            source_task_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Ledger Sha256 */
+            ledger_sha256: string;
+            /** Event Count */
+            event_count: number;
+            /**
+             * Verification Status
+             * @default pass
+             * @constant
+             */
+            verification_status: "pass";
         };
         /** EntryCreate */
         EntryCreate: {
@@ -756,6 +930,55 @@ export interface components {
          */
         ErrorResponse: {
             detail: components["schemas"]["ErrorDetail"];
+        };
+        /** FirstBoardEventListRead */
+        FirstBoardEventListRead: {
+            /**
+             * Taxonomy Version
+             * @default first-board-background-v1
+             * @constant
+             */
+            taxonomy_version: "first-board-background-v1";
+            /** Stock Code */
+            stock_code: string;
+            /** Event Date */
+            event_date?: string | null;
+            /** Items */
+            items: components["schemas"]["FirstBoardEventRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            source: components["schemas"]["DatasetSourceRead"];
+        };
+        /** FirstBoardEventRead */
+        FirstBoardEventRead: {
+            /** Event Id */
+            event_id: string;
+            /** Stock Code */
+            stock_code: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Class Code */
+            class_code: string;
+            /** Class Name */
+            class_name: string;
+            /** Group Code */
+            group_code: string;
+            /** Group Name */
+            group_name: string;
+            /** Source Detail Code */
+            source_detail_code: string;
+            /** Source Group Code */
+            source_group_code: string;
+            /** Position 60D Pct */
+            position_60d_pct: string | null;
+            position_band: components["schemas"]["PositionBand"];
+            trend: components["schemas"]["Trend"];
+            short_path: components["schemas"]["ShortPath"];
         };
         /** GlobalMarketBarRead */
         GlobalMarketBarRead: {
@@ -869,6 +1092,19 @@ export interface components {
             change_pct?: string | null;
             /** Quote Time */
             quote_time?: string | null;
+        };
+        /** GroupRead */
+        GroupRead: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Source Group Code */
+            source_group_code: string;
+            /** Description */
+            description: string;
+            /** Class Codes */
+            class_codes: string[];
         };
         /** Health */
         Health: {
@@ -1312,6 +1548,11 @@ export interface components {
             change_pct?: string | null;
         };
         /**
+         * PositionBand
+         * @enum {string}
+         */
+        PositionBand: "low" | "mid" | "high" | "unknown";
+        /**
          * QuoteRead
          * @description Real-time snapshot. Volume is 手 (see ``volume_note``); amount is 元.
          *
@@ -1713,6 +1954,11 @@ export interface components {
              */
             expires_at: string;
         };
+        /**
+         * ShortPath
+         * @enum {string}
+         */
+        ShortPath: "up_continuation" | "up_pullback" | "down_continuation" | "down_rebound" | "neutral" | "unknown";
         /** SourceStatus */
         SourceStatus: {
             /**
@@ -1765,6 +2011,11 @@ export interface components {
             /** Count */
             count: number;
         };
+        /**
+         * Trend
+         * @enum {string}
+         */
+        Trend: "up" | "down" | "sideways" | "unknown";
         /**
          * UserRead
          * @description Safe projection of an account: no credential material is representable.
@@ -4998,6 +5249,353 @@ export interface operations {
                 };
             };
             /** @description Frozen market-state data failed verification */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_first_board_classifier_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassifierCatalogRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    classify_first_board_background: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClassificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassificationRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_first_board_events: {
+        parameters: {
+            query: {
+                stock_code: string;
+                date?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstBoardEventListRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Frozen dataset is invalid */
             502: {
                 headers: {
                     [name: string]: unknown;
