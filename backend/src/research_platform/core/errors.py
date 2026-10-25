@@ -101,6 +101,42 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
         ErrorCategory.UNAVAILABLE,
         "首板冻结事件数据未通过完整性校验。",
     ),
+    "FIRST_BOARD_SOURCE_UNAVAILABLE": ErrorSpec(
+        "FIRST_BOARD_SOURCE_UNAVAILABLE",
+        503,
+        ErrorCategory.UNAVAILABLE,
+        "首板事件或历史行情源暂不可用。",
+    ),
+    "FIRST_BOARD_SOURCE_BAD_DATA": ErrorSpec(
+        "FIRST_BOARD_SOURCE_BAD_DATA",
+        502,
+        ErrorCategory.UNAVAILABLE,
+        "首板源数据未通过身份或历史窗口校验。",
+    ),
+    "FIRST_BOARD_DATE_UNAVAILABLE": ErrorSpec(
+        "FIRST_BOARD_DATE_UNAVAILABLE",
+        404,
+        ErrorCategory.NOT_FOUND,
+        "该交易日尚无 READY 首板数据集。",
+    ),
+    "FIRST_BOARD_DATE_NOT_CLOSED": ErrorSpec(
+        "FIRST_BOARD_DATE_NOT_CLOSED",
+        422,
+        ErrorCategory.VALIDATION,
+        "只能分析已经收盘的交易日。",
+    ),
+    "FIRST_BOARD_STORAGE_UNAVAILABLE": ErrorSpec(
+        "FIRST_BOARD_STORAGE_UNAVAILABLE",
+        503,
+        ErrorCategory.UNAVAILABLE,
+        "首板分类数据库暂不可用，请确认迁移已经完成。",
+    ),
+    "FIRST_BOARD_STORAGE_BAD_DATA": ErrorSpec(
+        "FIRST_BOARD_STORAGE_BAD_DATA",
+        502,
+        ErrorCategory.UNAVAILABLE,
+        "首板分类入库事件数与来源不一致。",
+    ),
     "JOB_NOT_FOUND": ErrorSpec("JOB_NOT_FOUND", 404, ErrorCategory.NOT_FOUND, "未找到该作业。"),
     "ROUTE_NOT_FOUND": ErrorSpec("ROUTE_NOT_FOUND", 404, ErrorCategory.NOT_FOUND, "接口不存在。"),
     "IDEMPOTENCY_CONFLICT": ErrorSpec(

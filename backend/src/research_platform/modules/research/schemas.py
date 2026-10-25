@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -116,3 +116,50 @@ class FirstBoardEventListRead(BaseModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1)
     source: DatasetSourceRead
+
+
+class StoredFirstBoardEventRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    event_id: str
+    trading_day: date
+    stock_code: str
+    feature_cutoff: date | None
+    class_code: str | None
+    class_name: str | None = None
+    group_code: str | None
+    quality_status: Literal["COMPLETE", "PARTIAL", "INSUFFICIENT"]
+    feature_reason: str | None
+    position_band: PositionBand
+    trend: Trend
+    short_path: ShortPath
+    position_60d_pct: Decimal | None
+    return_5d_pct: Decimal | None
+    return_20d_pct: Decimal | None
+    return_60d_pct: Decimal | None
+    ma_20: Decimal | None
+    ma_60: Decimal | None
+
+
+class FirstBoardDailyRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trading_day: date | None
+    status: Literal["NOT_REFRESHED", "EMPTY", "COMPLETE", "PARTIAL"]
+    batch_id: str | None = None
+    dataset_version_id: str | None = None
+    source_version: str | None = None
+    universe_definition: str | None = None
+    taxonomy_version: str
+    feature_version: str
+    computed_at: datetime | None = None
+    source_event_count: int | None = None
+    total: int
+    offset: int
+    limit: int
+    class_counts: dict[str, int] = Field(default_factory=dict)
+    quality_counts: dict[str, int] = Field(default_factory=dict)
+    unsupported_count: int = 0
+    items: list[StoredFirstBoardEventRead] = Field(default_factory=list)
+    classification_cutoff: Literal["T-1"] = "T-1"
+    uses_forward_data: Literal[False] = False

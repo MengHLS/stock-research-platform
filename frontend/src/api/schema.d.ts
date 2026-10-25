@@ -587,6 +587,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/research/first-board-classifier/daily": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Stored First Board Events */
+        get: operations["list_stored_first_board_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -930,6 +947,65 @@ export interface components {
          */
         ErrorResponse: {
             detail: components["schemas"]["ErrorDetail"];
+        };
+        /** FirstBoardDailyRead */
+        FirstBoardDailyRead: {
+            /** Trading Day */
+            trading_day: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "NOT_REFRESHED" | "EMPTY" | "COMPLETE" | "PARTIAL";
+            /** Batch Id */
+            batch_id?: string | null;
+            /** Dataset Version Id */
+            dataset_version_id?: string | null;
+            /** Source Version */
+            source_version?: string | null;
+            /** Universe Definition */
+            universe_definition?: string | null;
+            /** Taxonomy Version */
+            taxonomy_version: string;
+            /** Feature Version */
+            feature_version: string;
+            /** Computed At */
+            computed_at?: string | null;
+            /** Source Event Count */
+            source_event_count?: number | null;
+            /** Total */
+            total: number;
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+            /** Class Counts */
+            class_counts?: {
+                [key: string]: number;
+            };
+            /** Quality Counts */
+            quality_counts?: {
+                [key: string]: number;
+            };
+            /**
+             * Unsupported Count
+             * @default 0
+             */
+            unsupported_count: number;
+            /** Items */
+            items?: components["schemas"]["StoredFirstBoardEventRead"][];
+            /**
+             * Classification Cutoff
+             * @default T-1
+             * @constant
+             */
+            classification_cutoff: "T-1";
+            /**
+             * Uses Forward Data
+             * @default false
+             * @constant
+             */
+            uses_forward_data: false;
         };
         /** FirstBoardEventListRead */
         FirstBoardEventListRead: {
@@ -2003,6 +2079,48 @@ export interface components {
              * @constant
              */
             provider: "eastmoney";
+        };
+        /** StoredFirstBoardEventRead */
+        StoredFirstBoardEventRead: {
+            /** Event Id */
+            event_id: string;
+            /**
+             * Trading Day
+             * Format: date
+             */
+            trading_day: string;
+            /** Stock Code */
+            stock_code: string;
+            /** Feature Cutoff */
+            feature_cutoff: string | null;
+            /** Class Code */
+            class_code: string | null;
+            /** Class Name */
+            class_name?: string | null;
+            /** Group Code */
+            group_code: string | null;
+            /**
+             * Quality Status
+             * @enum {string}
+             */
+            quality_status: "COMPLETE" | "PARTIAL" | "INSUFFICIENT";
+            /** Feature Reason */
+            feature_reason: string | null;
+            position_band: components["schemas"]["PositionBand"];
+            trend: components["schemas"]["Trend"];
+            short_path: components["schemas"]["ShortPath"];
+            /** Position 60D Pct */
+            position_60d_pct: string | null;
+            /** Return 5D Pct */
+            return_5d_pct: string | null;
+            /** Return 20D Pct */
+            return_20d_pct: string | null;
+            /** Return 60D Pct */
+            return_60d_pct: string | null;
+            /** Ma 20 */
+            ma_20: string | null;
+            /** Ma 60 */
+            ma_60: string | null;
         };
         /** ThemeCountRead */
         ThemeCountRead: {
@@ -5597,6 +5715,121 @@ export interface operations {
             };
             /** @description Frozen dataset is invalid */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_stored_first_board_events: {
+        parameters: {
+            query?: {
+                date?: string | null;
+                offset?: number;
+                limit?: number;
+                batch_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstBoardDailyRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

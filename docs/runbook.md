@@ -65,7 +65,7 @@ uv run python tools/project.py db-check --target app
 # uv run python tools/project.py db-check --target source
 ```
 
-本地连开发服务器源库时，把 `RP_SOURCE_MYSQL__HOST/PORT` 设为本地转发地址（如 `127.0.0.1:13306`），设置 `RP_SOURCE_SSH_HOST` 与可选私钥；`source-db` 按该地址建隧道。服务器源库端口不要直接开放公网。首板账本用 `RP_FIRST_BOARD_DATASET__ROOT` 指向 `FIRSTBOARD-DETAIL-CLASSES-V1-20261025`，再执行 `uv run python tools/project.py first-board-classifier --first-board-action verify`；服务校验可信源/账本双哈希、规范七组十六类、`eventId` 与证券日期绑定及逐行新旧分类，任一失败返回 502/503 且不发布部分结果。单事件试算的 `input_time_assurance=caller_declared` 不证明输入时点，`/events` 才使用已验证冻结账本；首次校验约数秒并进程内缓存，源目录更新需重启。
+本地连开发服务器源库时，把 `RP_SOURCE_MYSQL__HOST/PORT` 设为本地转发地址（如 `127.0.0.1:13306`），设置 `RP_SOURCE_SSH_HOST` 与可选私钥；`source-db` 按该地址建隧道。服务器源库端口不要直接开放公网。首板账本用 `RP_FIRST_BOARD_DATASET__ROOT` 指向 `FIRSTBOARD-DETAIL-CLASSES-V1-20261025`，执行 `uv run python tools/project.py first-board-classifier --first-board-action verify`；服务校验双哈希、七组十六类、事件身份及逐行新旧分类，失败不发布部分结果。`/events` 读验证后的冻结账本，源更新需重启；单事件试算不证明外部输入时点。每日新事件先显式迁移应用库至 `0008_first_board_current`（本地 SQLite 用 `migrate-local`），再执行同命令的 `--first-board-action refresh --as-of 2026-10-23`；省略日期选择最近已收盘源交易日，无 READY 覆盖时明确失败。`--first-board-action status` 或登录后 `/api/v1/research/first-board-classifier/daily?date=2026-10-23` 查询应用库快照；同输入重跑幂等，源修正保留旧快照，刷新不会写源库/冻结 CSV，也不计算未来收益。该能力不配置自动调度；MySQL 应用库需单独迁移与实机验收。
 
 db-config 仅离线校验与输出脱敏状态，不连库；db-check 是显式 SELECT 1 连通检查，不建表、不扫描业务数据，也不证明只读授权、表结构或研究语义正确。源库权限由管理员核实实际授权及继承角色；不能通过尝试写生产表验证只读。TiDB 的普通 READ ONLY 事务声明并非可靠写保护，见[官方说明](https://docs.pingcap.com/tidbcloud/sql-statement-set-transaction/)。
 

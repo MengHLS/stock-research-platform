@@ -43,6 +43,9 @@ from research_platform.modules.market.service import MarketService
 from research_platform.modules.market.state_description import MarketStateDescriptionService
 from research_platform.modules.market.state_source import FrozenMarketStateSource
 from research_platform.modules.market.tencent_global import TencentGlobalSource
+from research_platform.modules.research.daily_service import FirstBoardDailyService
+from research_platform.modules.research.daily_source import SqlFirstBoardSource
+from research_platform.modules.research.daily_store import SqlFirstBoardStore
 from research_platform.modules.research.dataset_source import FrozenFirstBoardDatasetSource
 from research_platform.modules.research.router import router as research_router
 
@@ -139,6 +142,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if settings.first_board_dataset
         else None
+    )
+    app.state.first_board_daily = FirstBoardDailyService(
+        SqlFirstBoardSource(source_engine) if source_engine is not None else None,
+        SqlFirstBoardStore(sessions),
     )
     install_error_handlers(app)
     # Added last so it is outermost: ids exist before any handler or route runs.

@@ -9,11 +9,13 @@ from research_platform.core.errors import ErrorResponse
 from research_platform.modules.identity.dependencies import Actor, require_actor
 
 from . import service
+from .daily_service import FirstBoardDailyService
 from .dataset_source import FrozenFirstBoardDatasetSource
 from .schemas import (
     ClassificationRead,
     ClassificationRequest,
     ClassifierCatalogRead,
+    FirstBoardDailyRead,
     FirstBoardEventListRead,
 )
 
@@ -54,3 +56,18 @@ def list_first_board_events(
 ):
     source: FrozenFirstBoardDatasetSource | None = request.app.state.first_board_dataset
     return service.events(source, stock_code, event_date, limit)
+
+
+@router.get(
+    "/daily", response_model=FirstBoardDailyRead, operation_id="list_stored_first_board_events"
+)
+def list_stored_first_board_events(
+    request: Request,
+    _actor: ActorDep,
+    event_date: date | None = Query(default=None, alias="date"),
+    offset: int = Query(default=0, ge=0, le=100000),
+    limit: int = Query(default=100, ge=1, le=500),
+    batch_id: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+):
+    daily: FirstBoardDailyService = request.app.state.first_board_daily
+    return daily.daily(event_date, offset=offset, limit=limit, batch_id=batch_id)

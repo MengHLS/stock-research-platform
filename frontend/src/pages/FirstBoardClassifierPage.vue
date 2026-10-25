@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppIcon from '../components/AppIcon'
+import FirstBoardDailyEvents from '../components/FirstBoardDailyEvents.vue'
 import {
   SHORT_PATH_OPTIONS,
   TREND_OPTIONS,
@@ -151,6 +152,7 @@ const {
       </aside>
 
       <main class="taxonomy">
+        <FirstBoardDailyEvents />
         <section class="event-search">
           <div class="event-search__head">
             <div>

@@ -1101,7 +1101,7 @@ def review_counts(action: str, *, days: int | None = None, as_of: str | None = N
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
-def first_board_classifier(action: str) -> None:
+def first_board_classifier(action: str, *, as_of: str | None = None) -> None:
     """Verify and summarize the configured frozen first-board event ledger."""
     from research_platform.core.config import Settings
     from research_platform.modules.research.dataset_source import (
@@ -1110,6 +1110,9 @@ def first_board_classifier(action: str) -> None:
     )
 
     settings = Settings()
+    if action in {"refresh", "status"}:
+        first_board_daily(action, as_of=as_of)
+        return
     if action != "verify":
         raise SystemExit(f"unknown first-board-classifier action: {action}")
     if settings.first_board_dataset is None:
@@ -1132,6 +1135,37 @@ def first_board_classifier(action: str) -> None:
             indent=2,
         )
     )
+
+
+def first_board_daily(action: str, *, as_of: str | None = None) -> None:
+    from sqlalchemy.orm import sessionmaker
+
+    from research_platform.core.config import Settings
+    from research_platform.core.database import make_application_engine, make_source_engine
+    from research_platform.core.errors import DomainError
+    from research_platform.modules.research.daily_service import FirstBoardDailyService
+    from research_platform.modules.research.daily_source import SqlFirstBoardSource
+    from research_platform.modules.research.daily_store import SqlFirstBoardStore
+
+    settings = Settings()
+    app_engine = make_application_engine(settings)
+    source_engine = (
+        make_source_engine(settings) if action == "refresh" and settings.source_mysql else None
+    )
+    try:
+        service = FirstBoardDailyService(
+            SqlFirstBoardSource(source_engine) if source_engine is not None else None,
+            SqlFirstBoardStore(sessionmaker(app_engine, expire_on_commit=False)),
+        )
+        day = date.fromisoformat(as_of) if as_of else None
+        result = service.refresh(day) if action == "refresh" else service.daily(day, limit=500)
+        print(result.model_dump_json(indent=2))
+    except DomainError as error:
+        raise SystemExit(f"{error.code}: {error.message}") from None
+    finally:
+        if source_engine is not None:
+            source_engine.dispose()
+        app_engine.dispose()
 
 
 def main() -> None:
@@ -1181,12 +1215,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--first-board-action",
-        choices=["verify"],
+        choices=["verify", "refresh", "status"],
         default="verify",
-        help="first-board-classifier: verify the frozen event ledger",
+        help="first-board-classifier: verify ledger, refresh a closed day, or read stored results",
     )
     parser.add_argument("--days", type=int, help="review-counts refresh: trading days to recompute")
-    parser.add_argument("--as-of", help="review-counts refresh: YYYY-MM-DD upper bound")
+    parser.add_argument(
+        "--as-of", help="review-counts/first-board-classifier: YYYY-MM-DD upper bound"
+    )
     parser.add_argument("--start", help="market-state scan: YYYY-MM-DD")
     parser.add_argument("--end", help="market-state scan: YYYY-MM-DD")
     parser.add_argument("--output", help="market-state: optional .scratch JSON path")
@@ -1244,7 +1280,7 @@ def main() -> None:
             as_of=args.as_of,
         )
     elif args.task == "first-board-classifier":
-        first_board_classifier(args.first_board_action)
+        first_board_classifier(args.first_board_action, as_of=args.as_of)
     elif args.task == "prototype":
         prototype(args.action, args.to)
     elif args.task == "icons":

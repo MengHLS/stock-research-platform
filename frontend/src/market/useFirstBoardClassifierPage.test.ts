@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRenderer, defineComponent, nextTick, type App } from 'vue'
 
 import { useFirstBoardClassifierPage } from './useFirstBoardClassifierPage'
+import { useFirstBoardDaily } from './useFirstBoardDaily'
 
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 vi.mock('../api/client', () => ({
@@ -214,5 +215,93 @@ describe('first-board classifier page state', () => {
     await request
     await settle()
     expect(state.eventsFailure.value).toBeNull()
+  })
+})
+
+describe('stored daily first-board results', () => {
+  let daily: ReturnType<typeof useFirstBoardDaily>
+  const DailyHarness = {
+    setup() {
+      daily = useFirstBoardDaily()
+      return () => null
+    },
+  }
+
+  it('reads stored results on mount and pins pagination to the displayed batch', async () => {
+    const snapshot = {
+      trading_day: '2026-10-23',
+      batch_id: 'a'.repeat(64),
+      status: 'PARTIAL',
+      total: 155,
+      items: [],
+    }
+    get.mockResolvedValue(success(snapshot))
+    app = renderer.createApp(DailyHarness)
+    app.mount(host)
+    await settle()
+    expect(daily.data.value?.status).toBe('PARTIAL')
+    await daily.load(100)
+    expect(get).toHaveBeenLastCalledWith(
+      '/api/v1/research/first-board-classifier/daily',
+      expect.objectContaining({
+        params: {
+          query: {
+            date: '2026-10-23',
+            batch_id: 'a'.repeat(64),
+            offset: 100,
+            limit: 100,
+          },
+        },
+      }),
+    )
+    await daily.load(0, true)
+    expect(get).toHaveBeenLastCalledWith(
+      '/api/v1/research/first-board-classifier/daily',
+      expect.objectContaining({
+        params: {
+          query: { date: '2026-10-23', batch_id: 'a'.repeat(64), offset: 0, limit: 100 },
+        },
+      }),
+    )
+  })
+
+  it('clears a changed date and ignores the old response', async () => {
+    const pending = deferred()
+    let signal: AbortSignal | undefined
+    get.mockImplementation((_path, options) => {
+      signal = options.signal
+      return pending.promise
+    })
+    app = renderer.createApp(DailyHarness)
+    app.mount(host)
+    await settle()
+    daily.date.value = '2026-10-22'
+    await settle()
+    expect(signal?.aborted).toBe(true)
+    pending.resolve(success({ status: 'COMPLETE', trading_day: '2026-10-23' }))
+    await settle()
+    expect(daily.data.value).toBeNull()
+    expect(daily.loading.value).toBe(false)
+  })
+
+  it('keeps a database failure with request id distinct from not refreshed', async () => {
+    get.mockResolvedValue({
+      ok: false,
+      failure: {
+        kind: 'business',
+        code: 'FIRST_BOARD_STORAGE_UNAVAILABLE',
+        message: '分类数据库暂不可用',
+        requestId: 'daily-42',
+      },
+    })
+    app = renderer.createApp(DailyHarness)
+    app.mount(host)
+    await settle()
+    expect(daily.failure.value?.requestId).toBe('daily-42')
+    expect(daily.data.value).toBeNull()
+    get.mockResolvedValue(success({ status: 'NOT_REFRESHED', total: 0, items: [] }))
+    await daily.load()
+    expect(daily.failure.value).toBeNull()
+    expect(daily.data.value?.status).toBe('NOT_REFRESHED')
   })
 })
