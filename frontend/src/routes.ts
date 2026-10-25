@@ -55,7 +55,11 @@ export const routes: RouteRecordRaw[] = [
     path: '/market/limit-up',
     name: 'market-limit-up',
     component: () => import('./pages/MarketLimitUpPage.vue'),
-    meta: { title: '涨跌停复盘', subtitle: '观察日、涨跌停日历、涨停与断板明细' },
+    meta: {
+      title: '涨跌停复盘',
+      subtitle: '观察日、涨跌停日历、涨停与断板明细',
+      fillViewport: true,
+    },
   },
   {
     path: '/market/global',

@@ -33,7 +33,10 @@ appearance.apply()
     />
     <div class="app__main">
       <AppTopbar />
-      <main class="app__content">
+      <main
+        class="app__content"
+        :class="{ 'app__content--fill': route.meta.fillViewport === true }"
+      >
         <RouterView />
       </main>
     </div>
@@ -44,7 +47,10 @@ appearance.apply()
 .app {
   display: grid;
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .app--collapsed {
@@ -55,12 +61,23 @@ appearance.apply()
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .app__content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 20px;
+}
+
+@media (min-width: 1081px) and (min-height: 680px) {
+  .app__content--fill {
+    overflow: hidden;
+  }
 }
 
 .app__scrim {

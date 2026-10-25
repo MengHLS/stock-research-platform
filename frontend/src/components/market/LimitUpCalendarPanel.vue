@@ -20,10 +20,6 @@ const emit = defineEmits<{
 const maxCount = computed(() => Math.max(1, ...props.model.cells.map((cell) => cell?.count ?? 0)))
 const hasIncompleteDays = computed(() => props.model.knownDays < props.model.tradingDays)
 const hasIncompleteDownDays = computed(() => props.model.downKnownDays < props.model.tradingDays)
-const activityDays = computed(() => props.model.activityDays.slice(0, 6))
-const maxActivityCount = computed(() =>
-  Math.max(1, ...activityDays.value.map((item) => item.count)),
-)
 const weekdays = ['一', '二', '三', '四', '五', '六', '日']
 
 function heat(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
@@ -157,29 +153,6 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
             <b>{{ model.peak ?? '—' }}<small>家</small></b>
             <em>{{ model.peakDate ? model.peakDate.slice(5) : '本月暂无可用记录' }}</em>
           </article>
-          <div v-if="activityDays.length" class="activity-card">
-            <div class="activity-head">
-              <span>本月活跃日</span>
-              <em>按涨停家数排序</em>
-            </div>
-            <div class="activity-list">
-              <button
-                v-for="item in activityDays"
-                :key="item.date"
-                type="button"
-                :class="{ selected: item.date === selectedDate }"
-                :aria-label="`${item.date}，${item.count} 家涨停`"
-                :aria-pressed="item.date === selectedDate"
-                @click="emit('select', item.date)"
-              >
-                <span class="mono">{{ item.date.slice(5) }}</span>
-                <i>
-                  <span :style="{ width: `${(item.count / maxActivityCount) * 100}%` }" />
-                </i>
-                <b>{{ item.count }}</b>
-              </button>
-            </div>
-          </div>
           <div class="calendar-legend">
             <span>少</span>
             <i />
@@ -206,26 +179,28 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 }
 
 .panel-head {
-  min-height: 64px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 18px;
+  gap: 10px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in oklab, var(--surface) 96%, var(--fg) 4%);
 }
 
 .panel-head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 14.5px;
   font-weight: 680;
+  line-height: 1.2;
 }
 
 .panel-head p {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 11.5px;
+  line-height: 1.2;
 }
 
 .head-tools {
@@ -233,13 +208,13 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px 10px;
+  gap: 6px 8px;
   flex-wrap: wrap;
 }
 
 .month-controls {
   flex: none;
-  height: 34px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
   overflow: hidden;
@@ -249,7 +224,7 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 }
 
 .month-controls button {
-  width: 32px;
+  width: 28px;
   height: 100%;
   display: grid;
   place-items: center;
@@ -269,45 +244,44 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 }
 
 .month-controls b {
-  min-width: 76px;
-  padding: 0 8px;
+  min-width: 68px;
+  padding: 0 6px;
   border-inline: 1px solid var(--border);
   color: var(--fg);
-  font-family: var(--mono);
-  font-size: 12px;
-  text-align: center;
-}
-
-.calendar-layout {
-  padding: 16px;
-  display: grid;
-  grid-template-columns: minmax(0, 980px) minmax(300px, 1fr);
-  gap: 18px;
-  align-items: start;
-}
-
-.calendar-wrap {
-  width: 100%;
-  max-width: 980px;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.weekday {
-  padding-bottom: 2px;
-  color: var(--muted);
   font-family: var(--mono);
   font-size: 11.5px;
   text-align: center;
 }
 
+.calendar-layout {
+  padding: 6px 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 620px) minmax(300px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.calendar-wrap {
+  width: 100%;
+  max-width: 760px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.weekday {
+  padding-bottom: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-align: center;
+}
+
 .calendar-cell {
   position: relative;
-  aspect-ratio: 1.35;
-  min-height: clamp(42px, 4vw, 78px);
-  padding: 5px 6px;
+  height: clamp(28px, 2.35vw, 42px);
+  padding: 3px 4px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface2);
@@ -315,7 +289,7 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 1px;
+  gap: 0;
 }
 
 .calendar-cell--blank {
@@ -363,7 +337,7 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 .calendar-day {
   color: currentColor;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 9.5px;
   opacity: 0.68;
 }
 
@@ -371,7 +345,7 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 3px;
 }
 
 .calendar-counts > span {
@@ -382,7 +356,7 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 
 .calendar-counts em {
   color: currentColor;
-  font-size: 8.5px;
+  font-size: 8px;
   font-style: normal;
   opacity: 0.7;
 }
@@ -390,7 +364,7 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 .calendar-counts b {
   color: inherit;
   font-family: var(--mono);
-  font-size: clamp(11px, 0.85vw, 16px);
+  font-size: clamp(10px, 0.75vw, 13px);
   line-height: 1;
 }
 
@@ -405,136 +379,54 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 .month-summary {
   min-width: 0;
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .month-summary article {
   min-width: 0;
-  padding: 11px 13px;
+  padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface2);
   display: grid;
-  gap: 2px;
+  gap: 1px;
 }
 
 .month-summary article > span,
 .month-summary article em {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 10.5px;
   font-style: normal;
+  line-height: 1.35;
 }
 
 .month-summary article b {
   color: var(--fg);
   font-family: var(--mono);
-  font-size: 26px;
-  line-height: 1.2;
+  font-size: 18px;
+  line-height: 1.05;
 }
 
 .month-summary article small {
   margin-left: 3px;
   color: var(--fg2);
-  font-size: 12px;
-}
-
-.activity-card {
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface2);
-}
-
-.activity-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.activity-head span {
-  color: var(--fg2);
-  font-size: 12px;
-  font-weight: 620;
-}
-
-.activity-head em {
-  color: var(--muted);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.activity-list {
-  display: grid;
-  gap: 4px;
-}
-
-.activity-list button {
-  min-width: 0;
-  min-height: 24px;
-  padding: 2px 5px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg2);
-  display: grid;
-  grid-template-columns: 42px minmax(30px, 1fr) 24px;
-  align-items: center;
-  gap: 7px;
-  font-size: 11.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.activity-list button:hover {
-  border-color: var(--border);
-  background: var(--surface3);
-}
-
-.activity-list button.selected {
-  border-color: color-mix(in oklab, var(--accent) 44%, var(--border));
-  background: color-mix(in oklab, var(--accent) 8%, transparent);
-}
-
-.activity-list i {
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--surface3);
-}
-
-.activity-list i span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: color-mix(in oklab, var(--up) 80%, var(--brand));
-}
-
-.activity-list b {
-  color: var(--fg);
-  font-family: var(--mono);
-  font-size: 11.5px;
-  text-align: right;
-}
-
-.mono {
-  font-family: var(--mono);
+  font-size: 10.5px;
 }
 
 .calendar-legend {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 3px 1px;
+  gap: 6px;
+  padding: 1px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 10.5px;
 }
 
 .calendar-legend i {
-  width: min(130px, 42%);
-  height: 9px;
+  width: min(110px, 38%);
+  height: 7px;
   border-radius: 999px;
   background: linear-gradient(
     90deg,
@@ -548,10 +440,11 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 }
 
 .calendar-note {
+  grid-column: 1 / -1;
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .calendar-note code {
@@ -560,7 +453,7 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
 }
 
 .calendar-state {
-  min-height: 150px;
+  min-height: 110px;
   padding: 16px;
   border: 1px dashed var(--border2);
   border-radius: var(--radius);
@@ -583,7 +476,7 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
   }
 
   .month-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .calendar-legend,
@@ -596,10 +489,11 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
   .panel-head {
     align-items: flex-start;
     flex-direction: column;
+    padding: 9px 10px;
   }
 
   .calendar-layout {
-    padding: 12px;
+    padding: 9px;
   }
 
   .head-tools {
@@ -608,32 +502,27 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
   }
 
   .calendar-cell {
-    aspect-ratio: auto;
-    min-height: 40px;
+    height: 34px;
     padding: 3px;
   }
 
   .month-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .activity-list button {
-    min-height: 40px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .month-controls {
-    height: 44px;
+    height: 40px;
   }
 
   .month-controls button {
-    width: 44px;
+    width: 40px;
   }
 }
 
 @media (min-width: 2200px) {
   .calendar-layout {
-    grid-template-columns: minmax(760px, 1.15fr) minmax(520px, 0.85fr);
-    gap: 24px;
+    grid-template-columns: minmax(620px, 720px) minmax(360px, 1fr);
+    gap: 16px;
   }
 
   .calendar-wrap {
@@ -641,22 +530,16 @@ function countLabel(cell: NonNullable<MonthCalendarModel['cells'][number]>) {
   }
 
   .calendar-cell {
-    aspect-ratio: auto;
-    min-height: 82px;
+    height: 46px;
   }
 
   .month-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .activity-card,
   .calendar-legend,
   .calendar-note {
     grid-column: 1 / -1;
-  }
-
-  .activity-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

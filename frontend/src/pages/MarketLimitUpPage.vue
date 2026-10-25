@@ -408,7 +408,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .banner {
@@ -537,9 +537,86 @@ onBeforeUnmount(() => {
   }
 }
 
+@media (min-width: 1081px) and (min-height: 680px) {
+  .limit-page {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .limit-page :deep(.calendar-panel) {
+    flex: none;
+  }
+
+  .limit-page :deep(.review-panel) {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .limit-page :deep(.review-panel .panel-head) {
+    min-height: 50px;
+    padding: 7px 12px;
+  }
+
+  .limit-page :deep(.review-panel .panel-head p) {
+    font-size: 11.5px;
+  }
+
+  .limit-page :deep(.review-panel .filters) {
+    padding: 7px 12px;
+    gap: 6px;
+  }
+
+  .limit-page :deep(.review-panel .search) {
+    height: 30px;
+  }
+
+  .limit-page :deep(.review-panel .filter-group button),
+  .limit-page :deep(.review-panel .filter-chip) {
+    min-height: 28px;
+    padding-block: 2px;
+  }
+
+  .limit-page :deep(.review-panel .result-meta) {
+    display: none;
+  }
+
+  .limit-page :deep(.review-panel .table-wrap) {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .limit-page :deep(.review-panel .pager) {
+    min-height: 38px;
+    padding: 4px 12px;
+  }
+
+  .limit-page :deep(.review-panel .pager button) {
+    width: 32px;
+    height: 28px;
+  }
+
+  .limit-page :deep(.review-panel > .state) {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .limit-page :deep(.issues) {
+    flex: none;
+    padding: 6px 10px;
+    max-height: 18vh;
+    overflow-y: auto;
+    font-size: 11px;
+  }
+}
+
 @media (min-width: 2200px) {
   .limit-page {
-    gap: 20px;
+    gap: 14px;
   }
 }
 </style>
