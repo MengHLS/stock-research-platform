@@ -5,6 +5,9 @@ from research_platform.core.config import Settings
 from research_platform.core.database import Base, make_application_engine
 from research_platform.modules.catalog import models as catalog_models  # noqa: F401
 from research_platform.modules.execution import models as execution_models  # noqa: F401
+from research_platform.modules.first_board_recursive import (
+    models as first_board_recursive_models,  # noqa: F401
+)
 from research_platform.modules.identity import models as identity_models  # noqa: F401
 from research_platform.modules.market import models as market_models  # noqa: F401
 from research_platform.modules.research import models as research_models  # noqa: F401

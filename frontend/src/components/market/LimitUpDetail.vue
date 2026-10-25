@@ -2,9 +2,17 @@
 import { computed, ref, watch } from 'vue'
 
 import AppIcon from '../AppIcon'
+import FirstBoardRecursivePanel from './FirstBoardRecursivePanel.vue'
 import IntradayChart from './IntradayChart.vue'
 import StockDailyKline from './StockDailyKline.vue'
 import type { FirstBoardHistory } from '../../market/first-board-classifier'
+import {
+  effectiveRecursiveView,
+  recursiveTabVisible,
+  shouldResetRecursiveView,
+  type FirstBoardRecursiveStatus,
+  type FirstBoardRecursiveTargetDetail,
+} from '../../market/first-board-recursive'
 import type { IntradayBar } from '../../market/intraday'
 import type { LimitUpReviewRow, ReviewStockSeries } from '../../market/review'
 import {
@@ -39,6 +47,12 @@ const props = defineProps<{
   firstBoardFailure: string | null
   firstBoardRequestId?: string | null
   initialChartMode?: 'daily' | 'intraday'
+  /** Test hook: render the recursive tab directly (default keeps the quote/events view). */
+  initialView?: 'events' | 'recursive'
+  recursiveDetail?: FirstBoardRecursiveTargetDetail | null
+  recursiveStatus?: FirstBoardRecursiveStatus
+  recursiveFailure?: string | null
+  recursiveRequestId?: string | null
 }>()
 const emit = defineEmits<{
   'save-note': [note: string]
@@ -47,11 +61,20 @@ const emit = defineEmits<{
   'request-intraday': []
   'retry-intraday': []
   'retry-first-board': []
+  'retry-recursive': []
 }>()
 
 const draft = ref(props.note)
 const savedMessage = ref('')
 const chartMode = ref<'daily' | 'intraday'>(props.initialChartMode ?? 'daily')
+const activeView = ref<'events' | 'recursive'>(props.initialView ?? 'events')
+const recursiveSnapshotDate = computed(() => props.recursiveDetail?.snapshot.trade_date ?? null)
+const showRecursiveTab = computed(() =>
+  recursiveTabVisible(props.recursiveStatus ?? 'idle', props.row.date, recursiveSnapshotDate.value),
+)
+const effectiveView = computed(() =>
+  effectiveRecursiveView(showRecursiveTab.value, activeView.value),
+)
 let savedSnapshot: { key: string; note: string } | null = null
 const currentRowKey = () => `${props.row.date}|${props.row.symbol}|${props.row.status}`
 const hasCandles = computed(() =>
@@ -103,6 +126,21 @@ watch(
   () => [props.row.symbol, props.row.date],
   () => {
     chartMode.value = 'daily'
+  },
+)
+
+// `loading` must not reset the chosen view, otherwise switching between two covered
+// stocks kicks the user back to the chart. Reset only when data is definitively absent or
+// the review day is before the frozen snapshot (the date gate is closed).
+watch(
+  () =>
+    shouldResetRecursiveView(
+      props.recursiveStatus ?? 'idle',
+      props.row.date,
+      recursiveSnapshotDate.value,
+    ),
+  (reset) => {
+    if (reset) activeView.value = 'events'
   },
 )
 
@@ -203,7 +241,34 @@ function saveNote() {
 
     <div class="detail-layout">
       <div class="detail-main">
-        <section class="chart-section">
+        <div v-if="showRecursiveTab" class="view-switch" role="group" aria-label="股票详情视图">
+          <button
+            type="button"
+            :class="{ active: effectiveView === 'events' }"
+            :aria-pressed="effectiveView === 'events'"
+            @click="activeView = 'events'"
+          >
+            行情与事件
+          </button>
+          <button
+            type="button"
+            :class="{ active: effectiveView === 'recursive' }"
+            :aria-pressed="effectiveView === 'recursive'"
+            @click="activeView = 'recursive'"
+          >
+            首板递归
+          </button>
+        </div>
+        <FirstBoardRecursivePanel
+          v-if="effectiveView === 'recursive'"
+          :detail="recursiveDetail ?? null"
+          :status="recursiveStatus ?? 'idle'"
+          :failure="recursiveFailure ?? null"
+          :review-date="row.date"
+          :request-id="recursiveRequestId ?? null"
+          @retry="emit('retry-recursive')"
+        />
+        <section v-else class="chart-section">
           <div class="section-title">
             <div>
               <h3>个股走势</h3>
@@ -573,7 +638,8 @@ function saveNote() {
   gap: 8px;
 }
 
-.chart-switch {
+.chart-switch,
+.view-switch {
   display: inline-flex;
   padding: 2px;
   border: 1px solid var(--border);
@@ -581,7 +647,13 @@ function saveNote() {
   background: var(--surface2);
 }
 
-.chart-switch button {
+/* Only the view switch is a grid child; the chart switch keeps its original flex sizing. */
+.view-switch {
+  width: fit-content;
+}
+
+.chart-switch button,
+.view-switch button {
   min-height: 27px;
   padding: 2px 9px;
   border: 0;
@@ -593,7 +665,8 @@ function saveNote() {
   cursor: pointer;
 }
 
-.chart-switch button.active {
+.chart-switch button.active,
+.view-switch button.active {
   background: var(--surface);
   color: var(--fg);
   box-shadow: 0 1px 2px color-mix(in oklab, var(--fg) 10%, transparent);

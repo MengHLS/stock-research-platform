@@ -27,6 +27,15 @@ from research_platform.core.middleware import RequestContextMiddleware
 from research_platform.core.upstream import UpstreamClient
 from research_platform.modules.catalog.router import router as catalog_router
 from research_platform.modules.execution.router import router as execution_router
+from research_platform.modules.first_board_recursive.router import (
+    router as first_board_recursive_router,
+)
+from research_platform.modules.first_board_recursive.service import (
+    FirstBoardRecursiveService,
+)
+from research_platform.modules.first_board_recursive.store import (
+    SqlFirstBoardRecursiveStore,
+)
 from research_platform.modules.identity.router import router as identity_router
 from research_platform.modules.market.legacy_review_source import LegacyMarketReviewSource
 from research_platform.modules.market.review import MarketReviewService
@@ -147,6 +156,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         SqlFirstBoardSource(source_engine) if source_engine is not None else None,
         SqlFirstBoardStore(sessions),
     )
+    app.state.first_board_recursive = FirstBoardRecursiveService(
+        SqlFirstBoardRecursiveStore(sessions)
+    )
     install_error_handlers(app)
     # Added last so it is outermost: ids exist before any handler or route runs.
     app.add_middleware(RequestContextMiddleware)
@@ -185,4 +197,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(identity_router)
     app.include_router(market_router)
     app.include_router(research_router)
+    app.include_router(first_board_recursive_router)
     return app

@@ -1168,6 +1168,40 @@ def first_board_daily(action: str, *, as_of: str | None = None) -> None:
         app_engine.dispose()
 
 
+def first_board_recursive(action: str, *, replace: bool = False) -> None:
+    """Import, inspect or verify the frozen first-board recursive delivery."""
+    from sqlalchemy.orm import sessionmaker
+
+    from research_platform.core.config import Settings
+    from research_platform.core.database import make_application_engine
+    from research_platform.core.errors import DomainError
+    from research_platform.modules.first_board_recursive import dataset_source, service
+    from research_platform.modules.first_board_recursive.store import (
+        SqlFirstBoardRecursiveStore,
+    )
+
+    settings = Settings()
+    app_engine = make_application_engine(settings)
+    try:
+        store = SqlFirstBoardRecursiveStore(sessionmaker(app_engine, expire_on_commit=False))
+        if action == "status":
+            payload = service.stored_status(store)
+        else:
+            configured = settings.first_board_recursive
+            delivery = dataset_source.delivery_or_error(
+                configured.root if configured is not None else None
+            )
+            if action == "verify":
+                payload = service.verify_delivery(store, delivery)
+            else:
+                payload = service.import_delivery(store, delivery, replace=replace)
+    except DomainError as error:
+        raise SystemExit(f"{error.code}: {error.message}") from None
+    finally:
+        app_engine.dispose()
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1186,6 +1220,7 @@ def main() -> None:
             "market-state",
             "review-counts",
             "first-board-classifier",
+            "first-board-recursive",
             "prototype",
             "identity",
             "icons",
@@ -1197,6 +1232,16 @@ def main() -> None:
         choices=["list", "shape", "copy"],
         default="list",
         help="prototype: list navigation, dump shape JSON, or copy the HTML",
+    )
+    parser.add_argument(
+        "--first-board-recursive-action",
+        dest="first_board_recursive_action",
+        choices=["import", "status", "verify"],
+        default="status",
+        help=(
+            "first-board-recursive: import the frozen delivery, inspect stored snapshots, "
+            "or verify stored rows against the delivery"
+        ),
     )
     parser.add_argument("--to", metavar="PATH", help="prototype copy: destination path")
     parser.add_argument(
@@ -1220,6 +1265,14 @@ def main() -> None:
         help="first-board-classifier: verify ledger, refresh a closed day, or read stored results",
     )
     parser.add_argument("--days", type=int, help="review-counts refresh: trading days to recompute")
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help=(
+            "first-board-recursive with the import action: overwrite a snapshot whose "
+            "delivery changed"
+        ),
+    )
     parser.add_argument(
         "--as-of", help="review-counts/first-board-classifier: YYYY-MM-DD upper bound"
     )
@@ -1281,6 +1334,8 @@ def main() -> None:
         )
     elif args.task == "first-board-classifier":
         first_board_classifier(args.first_board_action, as_of=args.as_of)
+    elif args.task == "first-board-recursive":
+        first_board_recursive(args.first_board_recursive_action, replace=args.replace)
     elif args.task == "prototype":
         prototype(args.action, args.to)
     elif args.task == "icons":

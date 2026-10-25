@@ -4,7 +4,9 @@ import { onBeforeUnmount, watch } from 'vue'
 import LimitUpDetail from './LimitUpDetail.vue'
 import { api, callApi } from '../../api/client'
 import { isAuthNotConfigured, type ApiFailure } from '../../api/errors'
+import { firstBoardRecursiveFailureText } from '../../market/first-board-recursive'
 import type { LimitUpReviewRow } from '../../market/review'
+import { useFirstBoardRecursive } from '../../market/useFirstBoardRecursive'
 import { useLatestIntraday } from '../../market/useLatestIntraday'
 import { useStockFirstBoardEvents } from '../../market/useStockFirstBoardEvents'
 import { useStockDetail } from '../../market/useStockDetail'
@@ -93,6 +95,24 @@ const {
   ),
 )
 
+const {
+  detail: recursiveDetail,
+  status: recursiveStatus,
+  failure: recursiveFailure,
+  load: loadFirstBoardRecursive,
+  retry: retryFirstBoardRecursive,
+  clear: clearFirstBoardRecursive,
+} = useFirstBoardRecursive(async (symbol, signal) =>
+  callApi(
+    (requestSignal) =>
+      api.GET('/api/v1/research/first-board-recursive/targets/{symbol}', {
+        params: { path: { symbol } },
+        signal: requestSignal,
+      }),
+    { access: 'read', signal },
+  ),
+)
+
 function failureText(failure: ApiFailure): string {
   if (isAuthNotConfigured(failure)) return '登录服务尚未启用，无法读取历史复盘数据。'
   if (failure.kind === 'network') return '无法连接后台服务，请确认 API 已启动或检查网络。'
@@ -109,10 +129,19 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => props.row.symbol,
+  (symbol) => {
+    void loadFirstBoardRecursive(symbol)
+  },
+  { immediate: true },
+)
+
 onBeforeUnmount(() => {
   clear()
   resetIntraday()
   clearFirstBoardEvents()
+  clearFirstBoardRecursive()
 })
 
 function requestIntraday() {
@@ -141,11 +170,16 @@ function requestIntraday() {
     :first-board-loading="firstBoardLoading"
     :first-board-failure="firstBoardFailure ? failureText(firstBoardFailure) : null"
     :first-board-request-id="firstBoardFailure?.requestId"
+    :recursive-detail="recursiveDetail"
+    :recursive-status="recursiveStatus"
+    :recursive-failure="recursiveFailure ? firstBoardRecursiveFailureText(recursiveFailure) : null"
+    :recursive-request-id="recursiveFailure?.requestId"
     @save-note="emit('save-note', $event)"
     @retry-stock="retrySeries"
     @retry-facts="retryFacts"
     @request-intraday="requestIntraday"
     @retry-intraday="retryIntraday"
     @retry-first-board="retryFirstBoardEvents"
+    @retry-recursive="retryFirstBoardRecursive"
   />
 </template>

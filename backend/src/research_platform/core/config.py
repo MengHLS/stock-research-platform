@@ -159,6 +159,18 @@ class FirstBoardDatasetConfig(BaseModel):
     root: Path
 
 
+class FirstBoardRecursiveConfig(BaseModel):
+    """Read-only access to the verified frozen first-board recursive delivery.
+
+    It is optional: without it the CLI import has nothing to read and the API
+    reports "no snapshot" instead of pretending an empty research result exists.
+    """
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    root: Path
+
+
 class TushareConfig(BaseModel):
     """Tushare token stays a secret: never logged, never returned to a client."""
 
@@ -239,6 +251,7 @@ class Settings(BaseSettings):
     review_counts: ReviewCountsConfig = ReviewCountsConfig()
     market_state: MarketStateConfig | None = None
     first_board_dataset: FirstBoardDatasetConfig | None = None
+    first_board_recursive: FirstBoardRecursiveConfig | None = None
     tushare: TushareConfig | None = None
     object_storage: ObjectStorageConfig | None = None
     auth: AuthConfig | None = None

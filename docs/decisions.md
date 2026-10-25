@@ -212,3 +212,9 @@ FastAPI 生成 schema，固定位置覆盖输出 TypeScript 声明。CI 比较�
 2026-10-25 追加：`stock-series` 每根日 K 增加 `volume_shares`、`amount_cny`，并用 `volume_missing_days` 统计窗口内成交量缺失天数；弹窗日 K 下方按同一日期序列绘制成交量柱（颜色沿用涨跌，未知留空），成交量或成交额任一缺失时返回 `stock_trade_missing`。真实零值与缺失分开：全零窗口显示 `0.00 手` 而非未知。
 
 代价与边界：数据库现状决定可见范围——`industry_assignments` 只有 2026-08-31 起的当前归属，更早观察日行业为 null；`liquidity_daily` 最大交易日为 2026-10-19；对 `600000.SH`、`000001.SZ` 的逐股核对显示市值最后非空日为 2026-09-04，之后市值未知，10-19 后换手率也未知（市值全表扫描超时，未证明所有证券相同）；`stock_daily_prices` 的成交量覆盖到 2026-10-23。补齐断档需旧工程采集侧继续写入或多源补数，属数据接入任务，不在只读接口内生成；新增的东方财富 `stock-profile` 仍在，但不再用于复盘弹窗。
+
+## D21 · 首板递归冻结快照落应用库只读表，弹窗内 Tab 展示
+
+依据与状态：2026-10-26 采用。用户要求在新项目加入该功能、前端与涨停复盘弹窗融合，并“建一个新表维护这一层关系”；已实现并通过本地 SQLite、接口与浏览器验收，MySQL 与生产未验收。
+
+实现：CLI `first-board-recursive --first-board-recursive-action import` 校验 summary/verification 计数、CSV 行数与交付 sha256 后单事务写入 `research_first_board_recursive_{snapshot,target,candidate}`（alembic 0009）；`GET /api/v1/research/first-board-recursive/{snapshots/current,targets/{symbol}}` 只读库，中文标签在 API 层生成、缺失保持 null；弹窗「首板递归」Tab 只看当前股票，时间线只含递归窗口、更早首板默认折叠、旧规则锚点仅进审计区；复盘日早于快照目标日时不显示该 Tab，晚于时显示并给出日期不一致警示，避免把 2026-10-23 的结论当成更早复盘日的信息。代价与边界：库内是冻结交付副本，交付变化需 `--replace` 重导；`boardCount` 是文本（如“8天4板”），整数列可为 null；交付内无 manifest，`sourceManifestSha256` 无法重算，另存 `artifact_sha256` 判定来源变化；不接入实验运行/回测，不改首板分类与策略口径，`uses_forward_data=false`。

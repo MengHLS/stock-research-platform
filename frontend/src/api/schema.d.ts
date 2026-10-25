@@ -641,6 +641,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/research/first-board-recursive/snapshots/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Snapshot
+         * @description Snapshot metadata, declared and derived counts, and the target summaries.
+         */
+        get: operations["get_first_board_recursive_snapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/research/first-board-recursive/targets/{symbol}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Target
+         * @description Two-layer result, recursive-window timeline, candidates and legacy audit.
+         */
+        get: operations["get_first_board_recursive_target"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -711,6 +751,34 @@ export interface components {
             price: string;
         };
         /**
+         * AuditRead
+         * @description Old-rule audit and raw keys; deliberately kept out of the primary reading order.
+         */
+        AuditRead: {
+            /** Code Correction From */
+            code_correction_from: string | null;
+            /** Code Correction To */
+            code_correction_to: string | null;
+            /** Legacy Anchor Date */
+            legacy_anchor_date: string | null;
+            /** Legacy Anchor Stage */
+            legacy_anchor_stage: string | null;
+            /** Legacy Anchor Stage Label */
+            legacy_anchor_stage_label: string | null;
+            /** Legacy Selection Reason */
+            legacy_selection_reason: string | null;
+            /** Legacy Selection Reason Label */
+            legacy_selection_reason_label: string | null;
+            /** Relation Status */
+            relation_status: string | null;
+            /** Relation Status Label */
+            relation_status_label: string | null;
+            /** Diagnostic Codes */
+            diagnostic_codes: string[];
+            /** Diagnostic Detail */
+            diagnostic_detail: string | null;
+        };
+        /**
          * BarRead
          * @description One intraday bar. Prices are decimal strings, volume is in shares.
          */
@@ -740,6 +808,56 @@ export interface components {
              * @description Volume converted to shares
              */
             volume_shares: string;
+        };
+        /** CandidateRead */
+        CandidateRead: {
+            /**
+             * Candidate Date
+             * Format: date
+             */
+            candidate_date: string;
+            /** Rank Oldest */
+            rank_oldest: number;
+            /** Rank Nearest */
+            rank_nearest: number;
+            /** Stage */
+            stage: string;
+            /** Stage Label */
+            stage_label: string;
+            /** Limit Rate */
+            limit_rate: string | null;
+            /** Anchor Session Distance */
+            anchor_session_distance: number | null;
+            /** Reference Peak Date */
+            reference_peak_date: string | null;
+            /** Reference Peak */
+            reference_peak: string | null;
+            /** Pullback Low Date */
+            pullback_low_date: string | null;
+            /** Pullback Low */
+            pullback_low: string | null;
+            /** Pullback Pct */
+            pullback_pct: string | null;
+            /** First Close Break Date */
+            first_close_break_date: string | null;
+            /** Target Close Vs Reference Pct */
+            target_close_vs_reference_pct: string | null;
+            /** Is Selected Anchor */
+            is_selected_anchor: boolean;
+            /** Is Legacy Anchor */
+            is_legacy_anchor: boolean;
+            /** Selection Reason */
+            selection_reason: string | null;
+            /** Selection Reason Label */
+            selection_reason_label: string | null;
+            /** Relation Status */
+            relation_status: string | null;
+            /** Relation Status Label */
+            relation_status_label: string | null;
+            /** Price Reasons */
+            price_reasons: string[];
+            /** Price Diagnostic */
+            price_diagnostic: string | null;
         };
         /** ChangePasswordRequest */
         ChangePasswordRequest: {
@@ -924,6 +1042,37 @@ export interface components {
              * @constant
              */
             verification_status: "pass";
+        };
+        /**
+         * EarlierFirstBoardRead
+         * @description Folded history before the recursive anchor; never part of the main timeline.
+         */
+        EarlierFirstBoardRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Rank Oldest */
+            rank_oldest: number;
+            /** Rank Nearest */
+            rank_nearest: number;
+            /** Stage */
+            stage: string;
+            /** Stage Label */
+            stage_label: string;
+            /**
+             * Is Before Anchor
+             * @default true
+             * @constant
+             */
+            is_before_anchor: true;
+            /**
+             * Is Skipped
+             * @default false
+             * @constant
+             */
+            is_skipped: false;
         };
         /** EntryCreate */
         EntryCreate: {
@@ -1742,6 +1891,26 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** NearestPriorRead */
+        NearestPriorRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Distance Sessions */
+            distance_sessions: number | null;
+            /** Stage */
+            stage: string | null;
+            /** Stage Label */
+            stage_label: string | null;
+            /** Label */
+            label: string;
+            /** Explanation */
+            explanation: string;
+            /** Is Recursive Anchor */
+            is_recursive_anchor: boolean;
+        };
         /** OverviewIndexRead */
         OverviewIndexRead: {
             /** Symbol */
@@ -1823,6 +1992,42 @@ export interface components {
              * @enum {string}
              */
             phase: "opening_auction" | "pre_open" | "continuous" | "lunch_break" | "closed";
+        };
+        /** RecursiveAnchorRead */
+        RecursiveAnchorRead: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Distance Sessions */
+            distance_sessions: number | null;
+            /** Stage */
+            stage: string;
+            /** Stage Label */
+            stage_label: string;
+            /** Reference Peak Date */
+            reference_peak_date: string | null;
+            /** Reference Peak */
+            reference_peak: string | null;
+            /** Pullback Low Date */
+            pullback_low_date: string | null;
+            /** Pullback Low */
+            pullback_low: string | null;
+            /** Pullback Pct */
+            pullback_pct: string | null;
+            /** First Close Break Date */
+            first_close_break_date: string | null;
+            /** Target Close Vs Reference Pct */
+            target_close_vs_reference_pct: string | null;
+            /** Selection Reason */
+            selection_reason: string;
+            /** Selection Reason Label */
+            selection_reason_label: string;
+            /** Label */
+            label: string;
+            /** Explanation */
+            explanation: string;
         };
         /** RegisterRequest */
         RegisterRequest: {
@@ -2258,6 +2463,128 @@ export interface components {
          * @enum {string}
          */
         ShortPath: "up_continuation" | "up_pullback" | "down_continuation" | "down_rebound" | "neutral" | "unknown";
+        /** SnapshotCountsRead */
+        SnapshotCountsRead: {
+            /** Targets */
+            targets: number;
+            /** First Boards Since 2019 */
+            first_boards_since_2019: number;
+            /** Candidate Links */
+            candidate_links: number;
+        };
+        /** SnapshotMetaRead */
+        SnapshotMetaRead: {
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Trade Date
+             * Format: date
+             */
+            trade_date: string;
+            /** Board Scope */
+            board_scope: string;
+            /** Board Scope Label */
+            board_scope_label: string;
+            /** Status */
+            status: string;
+            /** Status Label */
+            status_label: string;
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
+            counts: components["schemas"]["SnapshotCountsRead"];
+            /** Stage Counts */
+            stage_counts: {
+                [key: string]: number;
+            };
+            /** Stage Labels */
+            stage_labels: {
+                [key: string]: string;
+            };
+            /** Selection Reason Counts */
+            selection_reason_counts: {
+                [key: string]: number;
+            };
+            /** Selection Reason Labels */
+            selection_reason_labels: {
+                [key: string]: string;
+            };
+            source: components["schemas"]["SnapshotSourceRead"];
+        };
+        /**
+         * SnapshotRead
+         * @description Snapshot plus the target rows; candidates and timelines stay on the detail route.
+         */
+        SnapshotRead: {
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Trade Date
+             * Format: date
+             */
+            trade_date: string;
+            /** Board Scope */
+            board_scope: string;
+            /** Board Scope Label */
+            board_scope_label: string;
+            /** Status */
+            status: string;
+            /** Status Label */
+            status_label: string;
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
+            counts: components["schemas"]["SnapshotCountsRead"];
+            /** Stage Counts */
+            stage_counts: {
+                [key: string]: number;
+            };
+            /** Stage Labels */
+            stage_labels: {
+                [key: string]: string;
+            };
+            /** Selection Reason Counts */
+            selection_reason_counts: {
+                [key: string]: number;
+            };
+            /** Selection Reason Labels */
+            selection_reason_labels: {
+                [key: string]: string;
+            };
+            source: components["schemas"]["SnapshotSourceRead"];
+            /** Targets */
+            targets: components["schemas"]["TargetSummaryRead"][];
+        };
+        /**
+         * SnapshotSourceRead
+         * @description Identity of the consumed frozen delivery; verification is never claimed as a rerun.
+         */
+        SnapshotSourceRead: {
+            /**
+             * Source Kind
+             * @default FROZEN_RESEARCH
+             * @constant
+             */
+            source_kind: "FROZEN_RESEARCH";
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Artifact Sha256 */
+            artifact_sha256: string;
+            /** Verification Status */
+            verification_status: string;
+            /** Verification Status Label */
+            verification_status_label: string;
+            /**
+             * Uses Forward Data
+             * @default false
+             * @constant
+             */
+            uses_forward_data: false;
+        };
         /** SourceStatus */
         SourceStatus: {
             /**
@@ -2345,12 +2672,160 @@ export interface components {
             /** Ma 60 */
             ma_60: string | null;
         };
+        /** TargetDetailRead */
+        TargetDetailRead: {
+            snapshot: components["schemas"]["SnapshotMetaRead"];
+            summary: components["schemas"]["TargetSummaryRead"];
+            target: components["schemas"]["TargetRead"];
+            nearest_prior: components["schemas"]["NearestPriorRead"] | null;
+            recursive_anchor: components["schemas"]["RecursiveAnchorRead"] | null;
+            /** Timeline */
+            timeline: components["schemas"]["TimelineNodeRead"][];
+            /** Earlier First Boards */
+            earlier_first_boards: components["schemas"]["EarlierFirstBoardRead"][];
+            /** Candidates */
+            candidates: components["schemas"]["CandidateRead"][];
+            audit: components["schemas"]["AuditRead"];
+            /**
+             * Uses Forward Data
+             * @default false
+             * @constant
+             */
+            uses_forward_data: false;
+        };
+        /** TargetRead */
+        TargetRead: {
+            /** Label */
+            label: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Close */
+            close: string | null;
+            /** Limit Rate */
+            limit_rate: string | null;
+            /** Theme */
+            theme: string | null;
+            /** Board Count */
+            board_count: number | null;
+            /** Board Count Text */
+            board_count_text: string | null;
+            /** First Board Since 2019 */
+            first_board_since_2019: number | null;
+            /** Prior First Board Count */
+            prior_first_board_count: number | null;
+            /** Prior Eligible Non St Count */
+            prior_eligible_non_st_count: number | null;
+            /** Stage Description */
+            stage_description: string;
+            /** Explanation */
+            explanation: string;
+        };
+        /** TargetSummaryRead */
+        TargetSummaryRead: {
+            /** Stock Code */
+            stock_code: string;
+            /** Stock Name */
+            stock_name: string;
+            /** Theme */
+            theme: string | null;
+            /** Target Order */
+            target_order: number;
+            /**
+             * Target Date
+             * Format: date
+             */
+            target_date: string;
+            /** Target Close */
+            target_close: string | null;
+            /** Limit Rate */
+            limit_rate: string | null;
+            /** Board Count */
+            board_count: number | null;
+            /** Board Count Text */
+            board_count_text: string | null;
+            /** Result Stage */
+            result_stage: string;
+            /** Result Stage Label */
+            result_stage_label: string;
+            /** Selection Reason */
+            selection_reason: string;
+            /** Selection Reason Label */
+            selection_reason_label: string;
+            /** Nearest Prior Date */
+            nearest_prior_date: string | null;
+            /** Nearest Prior Stage */
+            nearest_prior_stage: string | null;
+            /** Nearest Prior Stage Label */
+            nearest_prior_stage_label: string | null;
+            /** Anchor Date */
+            anchor_date: string | null;
+            /** Anchor Distance Sessions */
+            anchor_distance_sessions: number | null;
+            /** Layers Diverge */
+            layers_diverge: boolean;
+            /** Relation Status */
+            relation_status: string | null;
+            /** Relation Status Label */
+            relation_status_label: string | null;
+        };
         /** ThemeCountRead */
         ThemeCountRead: {
             /** Theme */
             theme: string;
             /** Count */
             count: number;
+        };
+        /**
+         * TimelineNodeRead
+         * @description One node of the recursive window only (date >= anchor, target last).
+         */
+        TimelineNodeRead: {
+            /** Order */
+            order: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "FIRST_BOARD" | "FIRST_CLOSE_BREAK" | "TARGET";
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "ANCHOR" | "SKIPPED" | "NEAREST_PRIOR" | "FIRST_CLOSE_BREAK" | "TARGET";
+            /** Label */
+            label: string;
+            /** Stage */
+            stage: string | null;
+            /** Stage Label */
+            stage_label: string | null;
+            /** Is Selected Anchor */
+            is_selected_anchor: boolean;
+            /** Is Skipped */
+            is_skipped: boolean;
+            /** Is Nearest Prior */
+            is_nearest_prior: boolean;
+            /** Is Before Anchor */
+            is_before_anchor: boolean;
+            /** Limit Rate */
+            limit_rate: string | null;
+            /** Reference Peak */
+            reference_peak: string | null;
+            /** Pullback Low */
+            pullback_low: string | null;
+            /** First Close Break Date */
+            first_close_break_date: string | null;
+            /** Target Close Vs Reference Pct */
+            target_close_vs_reference_pct: string | null;
+            /** Note */
+            note: string | null;
         };
         /**
          * Trend
@@ -6243,6 +6718,233 @@ export interface operations {
                 };
             };
             /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_first_board_recursive_snapshot: {
+        parameters: {
+            query?: {
+                trade_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No snapshot for the requested date */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_first_board_recursive_target: {
+        parameters: {
+            query?: {
+                trade_date?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description Exchange-qualified stock code */
+                symbol: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetDetailRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Snapshot or target is not available */
             404: {
                 headers: {
                     [name: string]: unknown;
