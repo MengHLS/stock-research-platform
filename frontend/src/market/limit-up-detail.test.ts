@@ -3,6 +3,7 @@ import { createSSRApp } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 
 import LimitUpDetail from '../components/market/LimitUpDetail.vue'
+import type { FirstBoardHistory } from './first-board-classifier'
 import type { LimitUpReviewRow } from './review'
 import type { ReviewStockFacts } from './stock-facts'
 
@@ -19,6 +20,60 @@ const row: LimitUpReviewRow = {
   broken_kind: null,
   change_pct: '10.00',
   one_word_board: false,
+}
+const firstBoardEvents: FirstBoardHistory = {
+  taxonomy_version: 'first-board-background-v1',
+  stock_code: row.symbol,
+  items: [
+    {
+      event_id: `${row.symbol}@2026-09-04`,
+      stock_code: row.symbol,
+      event_date: '2026-09-04',
+      class_code: 'FBC-07',
+      class_name: '整体方向未明确·短期中性背景首板',
+      group_code: 'FBG-04',
+      group_name: '整体方向未明确·短期路径分化背景',
+      source_detail_code: 'G4-N',
+      source_group_code: 'G4',
+      position_60d_pct: '52.35',
+      position_band: 'mid',
+      trend: 'sideways',
+      short_path: 'neutral',
+      quality_status: 'COMPLETE',
+      feature_reason: null,
+      source_kind: 'frozen',
+      data_version: 'first-board-background-v1',
+    },
+    {
+      event_id: `${row.symbol}@2026-10-20`,
+      stock_code: row.symbol,
+      event_date: row.date,
+      class_code: 'FBC-12',
+      class_name: '高位上升趋势短期延续背景首板',
+      group_code: 'FBG-05',
+      group_name: '上升趋势·短期延续背景',
+      source_detail_code: 'G5-H',
+      source_group_code: 'G5',
+      position_60d_pct: '82.10',
+      position_band: 'high',
+      trend: 'up',
+      short_path: 'up_continuation',
+      quality_status: 'COMPLETE',
+      feature_reason: null,
+      source_kind: 'stored',
+      data_version: 'stored-daily-first-board-v1',
+    },
+  ],
+  total: 2,
+  limit: 100,
+  source: {
+    frozen_status: 'PASS',
+    frozen_dataset_version_id: 660001,
+    frozen_event_count: 73003,
+    stored_batch_count: 1,
+    stored_event_count: 1,
+  },
+  uses_forward_data: false,
 }
 
 const facts: ReviewStockFacts = {
@@ -92,7 +147,6 @@ const missingFacts: ReviewStockFacts = {
 function props(overrides: Record<string, unknown> = {}) {
   return {
     row,
-    sameSector: [],
     note: '',
     stockSeries: null,
     stockLoading: false,
@@ -107,6 +161,10 @@ function props(overrides: Record<string, unknown> = {}) {
     intradayLoading: false,
     intradayFailure: null,
     intradayRequestId: null,
+    firstBoardEvents,
+    firstBoardLoading: false,
+    firstBoardFailure: null,
+    firstBoardRequestId: null,
     ...overrides,
   }
 }
@@ -188,5 +246,78 @@ describe('limit-up stock detail database facts', () => {
     expect(daily).toContain('重新读取日 K')
     expect(intraday).toContain('最近分时 · 2026-10-20')
     expect(intraday).toContain('重新读取分时')
+  })
+
+  it('replaces same-day peers with the stock first-board event history', async () => {
+    const html = await renderToString(createSSRApp(LimitUpDetail, props()))
+
+    expect(html).toContain('历史首板事件分类')
+    expect(html).toContain('FBC-12')
+    expect(html).toContain('高位上升趋势短期延续背景首板')
+    expect(html).toContain('短期向上延续')
+    expect(html).toContain('首板涨停')
+    expect(html).toContain('当前复盘日')
+    expect(html).toContain('status--up')
+    expect(html).not.toContain('同日同题材')
+  })
+
+  it('keeps event loading, empty and failure states distinct', async () => {
+    const loading = await renderToString(
+      createSSRApp(LimitUpDetail, props({ firstBoardEvents: null, firstBoardLoading: true })),
+    )
+    const empty = await renderToString(
+      createSSRApp(
+        LimitUpDetail,
+        props({ firstBoardEvents: { ...firstBoardEvents, items: [], total: 0 } }),
+      ),
+    )
+    const failure = await renderToString(
+      createSSRApp(
+        LimitUpDetail,
+        props({
+          firstBoardEvents: null,
+          firstBoardFailure: '首板冻结事件数据暂不可用',
+          firstBoardRequestId: 'event-request-9',
+        }),
+      ),
+    )
+
+    expect(loading).toContain('正在读取')
+    expect(empty).toContain('没有历史事件')
+    expect(failure).toContain('历史首板分类读取失败')
+    expect(failure).toContain('event-request-9')
+    expect(failure).toContain('重试事件分析')
+  })
+
+  it('does not claim a verified empty history when the frozen source is unavailable', async () => {
+    const unconfigured = await renderToString(
+      createSSRApp(
+        LimitUpDetail,
+        props({
+          firstBoardEvents: {
+            ...firstBoardEvents,
+            items: [],
+            total: 0,
+            source: { ...firstBoardEvents.source, frozen_status: 'NOT_CONFIGURED' },
+          },
+        }),
+      ),
+    )
+    const degraded = await renderToString(
+      createSSRApp(
+        LimitUpDetail,
+        props({
+          firstBoardEvents: {
+            ...firstBoardEvents,
+            source: { ...firstBoardEvents.source, frozen_status: 'BAD_DATA' },
+          },
+        }),
+      ),
+    )
+
+    expect(unconfigured).toContain('冻结历史未配置')
+    expect(unconfigured).not.toContain('已验证首板账本和当前入库快照中没有历史事件')
+    expect(degraded).toContain('冻结历史当前不可用')
+    expect(degraded).toContain('重试事件分析')
   })
 })

@@ -37,7 +37,6 @@ const drawerFailure = ref<ApiFailure | null>(null)
 const drawerMessage = ref('')
 const selectedLeader = ref<LadderRow | null>(null)
 const selectedRow = ref<LimitUpReviewRow | null>(null)
-const peerRows = ref<LimitUpReviewRow[]>([])
 const drawer = ref<InstanceType<typeof ReviewDrawer> | null>(null)
 const notes = reactive<Record<string, string>>({})
 
@@ -122,7 +121,6 @@ function closeDrawer() {
   drawerMessage.value = ''
   selectedLeader.value = null
   selectedRow.value = null
-  peerRows.value = []
 }
 
 async function openLeader(row: LadderRow) {
@@ -132,7 +130,6 @@ async function openLeader(row: LadderRow) {
   const sequence = ++drawerSequence
   selectedLeader.value = row
   selectedRow.value = null
-  peerRows.value = []
   drawerFailure.value = null
   drawerMessage.value = ''
   drawerLoading.value = true
@@ -156,7 +153,6 @@ async function openLeader(row: LadderRow) {
     return
   }
   const payload: ReviewLimitUp = result.data
-  peerRows.value = payload.rows
   selectedRow.value =
     payload.rows.find(
       (item) => item.date === date && item.symbol === row.symbol && item.status === 'limit_up',
@@ -166,12 +162,6 @@ async function openLeader(row: LadderRow) {
   if (!selectedRow.value) {
     drawerMessage.value = `${date} 的涨停明细中没有找到 ${row.symbol} ${row.name}。`
   }
-}
-
-async function selectStockFromDetail(row: LimitUpReviewRow) {
-  selectedRow.value = row
-  await nextTick()
-  drawer.value?.focusPanel()
 }
 
 function saveNote(value: string) {
@@ -397,10 +387,8 @@ onBeforeUnmount(() => {
       <StockDetailContent
         v-else-if="selectedRow"
         :row="selectedRow"
-        :peer-rows="peerRows"
         :window-max="maximumWindow"
         :note="notes[noteKey] ?? ''"
-        @select="selectStockFromDetail"
         @save-note="saveNote"
       />
     </ReviewDrawer>

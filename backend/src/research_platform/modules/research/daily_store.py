@@ -90,6 +90,29 @@ class SqlFirstBoardStore:
         except SQLAlchemyError:
             raise DomainError("FIRST_BOARD_STORAGE_UNAVAILABLE") from None
 
+    def for_stock(self, stock_code: str):
+        """Current snapshots only: superseded corrections stay auditable but hidden."""
+        try:
+            with self.sessions() as session:
+                rows = list(
+                    session.scalars(
+                        select(FirstBoardBackgroundEvent)
+                        .join(
+                            FirstBoardDailyCurrent,
+                            FirstBoardDailyCurrent.batch_id == FirstBoardBackgroundEvent.batch_id,
+                        )
+                        .where(FirstBoardBackgroundEvent.stock_code == stock_code)
+                        .order_by(
+                            FirstBoardBackgroundEvent.trading_day,
+                            FirstBoardBackgroundEvent.event_id,
+                        )
+                    )
+                )
+                session.expunge_all()
+                return rows
+        except SQLAlchemyError:
+            raise DomainError("FIRST_BOARD_STORAGE_UNAVAILABLE") from None
+
 
 def _insert_once(dialect, model, values):
     if dialect == "sqlite":

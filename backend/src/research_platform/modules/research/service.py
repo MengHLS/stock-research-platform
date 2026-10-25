@@ -7,7 +7,11 @@ from datetime import date
 from research_platform.core.errors import DomainError
 
 from . import first_board_classifier as classifier
-from .dataset_source import FrozenFirstBoardDatasetSource, source_or_error
+from .daily_service import FirstBoardDailyService
+from .dataset_source import (
+    FrozenFirstBoardDatasetSource,
+    source_or_error,
+)
 from .schemas import (
     ClassificationRead,
     ClassificationRequest,
@@ -16,6 +20,9 @@ from .schemas import (
     DatasetSourceRead,
     FirstBoardEventListRead,
     FirstBoardEventRead,
+    FirstBoardHistoryEventRead,
+    FirstBoardHistoryRead,
+    FirstBoardHistorySourceRead,
     GroupRead,
 )
 
@@ -162,5 +169,105 @@ def events(
             source_sha256=dataset.source_sha256,
             ledger_sha256=dataset.ledger_sha256,
             event_count=len(dataset.events),
+        ),
+    )
+
+
+def stock_history(
+    source: FrozenFirstBoardDatasetSource | None,
+    daily: FirstBoardDailyService,
+    stock_code: str,
+    limit: int,
+) -> FirstBoardHistoryRead:
+    """Merge verified frozen history with the current persisted daily snapshots."""
+    symbols = (
+        (stock_code,)
+        if "." in stock_code
+        else tuple(f"{stock_code}.{suffix}" for suffix in ("SH", "SZ", "BJ"))
+    )
+    frozen_status = "NOT_CONFIGURED"
+    frozen_dataset_version_id = None
+    frozen_event_count = None
+    frozen_rows = []
+    if source is not None:
+        try:
+            dataset = source_or_error(source)
+        except DomainError:
+            frozen_status = "BAD_DATA"
+        else:
+            frozen_status = "PASS"
+            frozen_dataset_version_id = dataset.dataset_version_id
+            frozen_event_count = len(dataset.events)
+            frozen_rows = [
+                FirstBoardHistoryEventRead(
+                    event_id=item.event_id,
+                    stock_code=item.stock_code,
+                    event_date=item.event_date,
+                    class_code=item.class_code,
+                    class_name=item.class_name,
+                    group_code=item.group_code,
+                    group_name=item.group_name,
+                    source_detail_code=item.source_detail_code,
+                    source_group_code=item.source_group_code,
+                    position_60d_pct=item.position_60d_pct,
+                    position_band=item.position_band,
+                    trend=item.trend,
+                    short_path=item.short_path,
+                    quality_status=("INSUFFICIENT" if item.class_code == "FBC-16" else "COMPLETE"),
+                    source_kind="frozen",
+                    data_version="first-board-background-v1",
+                )
+                for symbol in symbols
+                for item in dataset.by_stock.get(symbol, ())
+            ]
+
+    stored_models = [row for symbol in symbols for row in daily.stored_for_stock(symbol)]
+    stored_rows = []
+    for row in stored_models:
+        definition = (
+            classifier.CLASSES_BY_CODE.get(row.class_code) if row.class_code is not None else None
+        )
+        stored_rows.append(
+            FirstBoardHistoryEventRead(
+                event_id=row.event_id,
+                stock_code=row.stock_code,
+                event_date=row.trading_day,
+                class_code=row.class_code,
+                class_name=definition.name if definition else None,
+                group_code=row.group_code,
+                group_name=(
+                    classifier.GROUPS_BY_CODE[definition.group_code].name if definition else None
+                ),
+                source_detail_code=definition.source_detail_code if definition else None,
+                source_group_code=definition.source_group_code if definition else None,
+                position_60d_pct=row.position_60d_pct,
+                position_band=row.position_band,
+                trend=row.trend,
+                short_path=row.short_path,
+                quality_status=row.quality_status,
+                feature_reason=row.feature_reason,
+                source_kind="stored",
+                data_version="stored-daily-first-board-v1",
+            )
+        )
+
+    merged = {item.event_id: item for item in frozen_rows}
+    merged.update((item.event_id, item) for item in stored_rows)
+    ordered = sorted(
+        merged.values(),
+        key=lambda item: (item.event_date, item.event_id),
+        reverse=True,
+    )
+    return FirstBoardHistoryRead(
+        stock_code=stock_code,
+        items=ordered[:limit],
+        total=len(ordered),
+        limit=limit,
+        source=FirstBoardHistorySourceRead(
+            frozen_status=frozen_status,
+            frozen_dataset_version_id=frozen_dataset_version_id,
+            frozen_event_count=frozen_event_count,
+            stored_batch_count=len({item.batch_id for item in stored_models}),
+            stored_event_count=len(stored_rows),
         ),
     )

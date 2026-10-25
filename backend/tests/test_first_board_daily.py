@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from alembic import command
@@ -17,7 +18,12 @@ from research_platform.modules.research import daily_service as daily_module
 from research_platform.modules.research.daily_service import FirstBoardDailyService
 from research_platform.modules.research.daily_source import SqlFirstBoardSource, visible_factor
 from research_platform.modules.research.daily_store import SqlFirstBoardStore
-from research_platform.modules.research.first_board_classifier import ShortPath, Trend
+from research_platform.modules.research.dataset_source import FirstBoardEvent
+from research_platform.modules.research.first_board_classifier import (
+    PositionBand,
+    ShortPath,
+    Trend,
+)
 from research_platform.modules.research.first_board_features import (
     HistoricalBar,
     compute_background_features,
@@ -292,7 +298,73 @@ def test_daily_query_is_authenticated_shared_market_data_and_never_refreshes(
         assert (
             client.get("/api/v1/research/first-board-classifier/daily?limit=501").status_code == 422
         )
+        history = client.get(
+            "/api/v1/research/first-board-classifier/stock-history?stock_code=600001.SH"
+        )
+        assert history.status_code == 200
+        assert history.json()["source"]["frozen_status"] == "NOT_CONFIGURED"
+        assert history.json()["items"][0]["class_code"] == "FBC-12"
     assert client_factory().get("/api/v1/research/first-board-classifier/daily").status_code == 503
+
+
+def test_stock_history_merges_frozen_and_current_stored_events(client_factory, daily_service):
+    daily_service.refresh(now=NOW)
+    frozen_event = FirstBoardEvent(
+        event_id="600001.SH@2026-09-04",
+        stock_code="600001.SH",
+        event_date=date(2026, 9, 4),
+        position_60d_pct=Decimal("52"),
+        position_band=PositionBand.MID,
+        trend=Trend.SIDEWAYS,
+        short_path=ShortPath.NEUTRAL,
+        class_code="FBC-07",
+        class_name="整体方向未明确·短期中性背景首板",
+        group_code="FBG-04",
+        group_name="整体方向未明确·短期路径分化背景",
+        source_detail_code="G4-N",
+        source_group_code="G4",
+    )
+    frozen = SimpleNamespace(
+        dataset_version_id=660001,
+        events=(frozen_event,),
+        by_stock={"600001.SH": (frozen_event,)},
+    )
+    first, second = client_factory(1), client_factory(2)
+    for client in (first, second):
+        client.app.state.first_board_daily = FirstBoardDailyService(None, daily_service.store)
+        client.app.state.first_board_dataset = SimpleNamespace(load=lambda: frozen)
+        response = client.get(
+            "/api/v1/research/first-board-classifier/stock-history?stock_code=600001"
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source"]["frozen_status"] == "PASS"
+        assert payload["source"]["frozen_dataset_version_id"] == 660001
+        assert payload["source"]["stored_batch_count"] == 1
+        assert payload["total"] == 2
+        assert [item["source_kind"] for item in payload["items"]] == ["stored", "frozen"]
+        assert payload["items"][0]["event_date"] == DAY.isoformat()
+        assert payload["items"][0]["class_code"] == "FBC-12"
+        assert payload["items"][0]["source_detail_code"] == "G5-H"
+        assert payload["items"][1]["class_code"] == "FBC-07"
+        assert payload["uses_forward_data"] is False
+
+    def bad_source():
+        raise ValueError("summary JSON is corrupt")
+
+    first.app.state.first_board_dataset = SimpleNamespace(load=bad_source)
+    degraded = first.get(
+        "/api/v1/research/first-board-classifier/stock-history?stock_code=600001.SH"
+    )
+    assert degraded.status_code == 200
+    assert degraded.json()["source"]["frozen_status"] == "BAD_DATA"
+    assert degraded.json()["items"][0]["source_kind"] == "stored"
+    assert (
+        client_factory()
+        .get("/api/v1/research/first-board-classifier/stock-history?stock_code=600001")
+        .status_code
+        == 503
+    )
 
 
 def test_unsupported_axes_are_stored_without_fabricating_a_class(daily_service, monkeypatch):

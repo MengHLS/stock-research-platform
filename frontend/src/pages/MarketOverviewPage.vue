@@ -53,7 +53,6 @@ const drawerTheme = ref('')
 const drawerIndexSymbol = ref('')
 const drawerStock = ref<LimitUpReviewRow | null>(null)
 const stockSource = ref<LadderRow | null>(null)
-const stockPeerRows = ref<LimitUpReviewRow[]>([])
 const stockRowsLoading = ref(false)
 const stockRowsFailure = ref<ApiFailure | null>(null)
 const stockRowsMessage = ref('')
@@ -199,7 +198,6 @@ function closeDrawer() {
   drawerOverview.value = null
   drawerStock.value = null
   stockSource.value = null
-  stockPeerRows.value = []
   returnTo.value = null
   drawerFailure.value = null
   drawerLoading.value = false
@@ -246,7 +244,6 @@ async function openStock(row: LadderRow, date: string, back: 'theme' | 'day' | n
   drawerDate.value = date
   drawerStock.value = null
   stockSource.value = row
-  stockPeerRows.value = []
   stockRowsLoading.value = true
   stockRowsFailure.value = null
   stockRowsMessage.value = ''
@@ -269,7 +266,6 @@ async function openStock(row: LadderRow, date: string, back: 'theme' | 'day' | n
   }
 
   const payload: ReviewLimitUp = result.data
-  stockPeerRows.value = payload.rows
   const expectedStatus = row.broken_kind ? 'broken' : 'limit_up'
   drawerStock.value =
     payload.rows.find(
@@ -294,18 +290,10 @@ function backFromStock() {
   drawerTheme.value = target.theme ?? ''
   drawerStock.value = null
   stockSource.value = null
-  stockPeerRows.value = []
   stockRowsLoading.value = false
   stockRowsFailure.value = null
   stockRowsMessage.value = ''
   void nextTick(() => drawer.value?.focusPanel())
-}
-
-async function selectStockFromDetail(row: LimitUpReviewRow) {
-  drawerDate.value = row.date
-  drawerStock.value = row
-  await nextTick()
-  drawer.value?.focusPanel()
 }
 
 function retryStockLookup() {
@@ -671,10 +659,8 @@ onBeforeUnmount(() => {
         <StockDetailContent
           v-else-if="drawerStock"
           :row="drawerStock"
-          :peer-rows="stockPeerRows"
           :window-max="maximumWindow"
           :note="notes[stockNoteKey] ?? ''"
-          @select="selectStockFromDetail"
           @save-note="saveStockNote"
         />
       </template>

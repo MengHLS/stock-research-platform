@@ -163,3 +163,47 @@ class FirstBoardDailyRead(BaseModel):
     items: list[StoredFirstBoardEventRead] = Field(default_factory=list)
     classification_cutoff: Literal["T-1"] = "T-1"
     uses_forward_data: Literal[False] = False
+
+
+class FirstBoardHistorySourceRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    frozen_status: Literal["PASS", "NOT_CONFIGURED", "BAD_DATA"]
+    frozen_dataset_version_id: int | None = None
+    frozen_event_count: int | None = None
+    stored_batch_count: int = 0
+    stored_event_count: int = 0
+
+
+class FirstBoardHistoryEventRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    stock_code: str
+    event_date: date
+    class_code: str | None
+    class_name: str | None
+    group_code: str | None
+    group_name: str | None
+    source_detail_code: str | None
+    source_group_code: str | None
+    position_60d_pct: Decimal | None
+    position_band: PositionBand
+    trend: Trend
+    short_path: ShortPath
+    quality_status: Literal["COMPLETE", "PARTIAL", "INSUFFICIENT"]
+    feature_reason: str | None = None
+    source_kind: Literal["stored", "frozen"]
+    data_version: str
+
+
+class FirstBoardHistoryRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stock_code: str
+    taxonomy_version: Literal["first-board-background-v1"] = "first-board-background-v1"
+    items: list[FirstBoardHistoryEventRead]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    source: FirstBoardHistorySourceRead
+    uses_forward_data: Literal[False] = False

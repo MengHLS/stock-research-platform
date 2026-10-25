@@ -4,6 +4,14 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from '../AppIcon'
 import IntradayChart from './IntradayChart.vue'
 import StockDailyKline from './StockDailyKline.vue'
+import {
+  SHORT_PATH_OPTIONS,
+  TREND_OPTIONS,
+  positionBandLabel,
+  type FirstBoardHistory,
+  type FirstBoardShortPath,
+  type FirstBoardTrend,
+} from '../../market/first-board-classifier'
 import type { IntradayBar } from '../../market/intraday'
 import type { LimitUpReviewRow, ReviewStockSeries } from '../../market/review'
 import {
@@ -19,7 +27,6 @@ import { limitUpBoardLabel, limitUpSealLabel, limitUpStatusLabel } from '../../m
 
 const props = defineProps<{
   row: LimitUpReviewRow
-  sameSector: LimitUpReviewRow[]
   note: string
   stockSeries: ReviewStockSeries | null
   stockLoading: boolean
@@ -34,15 +41,19 @@ const props = defineProps<{
   intradayLoading: boolean
   intradayFailure: string | null
   intradayRequestId?: string | null
+  firstBoardEvents: FirstBoardHistory | null
+  firstBoardLoading: boolean
+  firstBoardFailure: string | null
+  firstBoardRequestId?: string | null
   initialChartMode?: 'daily' | 'intraday'
 }>()
 const emit = defineEmits<{
   'save-note': [note: string]
-  select: [row: LimitUpReviewRow]
   'retry-stock': []
   'retry-facts': []
   'request-intraday': []
   'retry-intraday': []
+  'retry-first-board': []
 }>()
 
 const draft = ref(props.note)
@@ -67,6 +78,23 @@ const factsNote = computed(() =>
     .map((issue) => issue.message)
     .join(' '),
 )
+const firstBoardHistory = computed(() =>
+  [...(props.firstBoardEvents?.items ?? [])].sort(
+    (left, right) =>
+      right.event_date.localeCompare(left.event_date) ||
+      right.event_id.localeCompare(left.event_id),
+  ),
+)
+const firstBoardRange = computed(() => {
+  if (!firstBoardHistory.value.length) return ''
+  return `${firstBoardHistory.value.at(-1)?.event_date} ～ ${firstBoardHistory.value[0].event_date}`
+})
+function trendLabel(value: FirstBoardTrend): string {
+  return TREND_OPTIONS.find((option) => option.value === value)?.label ?? '未知'
+}
+function shortPathLabel(value: FirstBoardShortPath): string {
+  return SHORT_PATH_OPTIONS.find((option) => option.value === value)?.label ?? '未知'
+}
 watch(
   () => [props.row.date, props.row.symbol, props.row.status, props.note],
   () => {
@@ -278,23 +306,111 @@ function saveNote() {
       </div>
 
       <aside class="detail-side">
-        <section class="same-sector">
+        <section class="event-history">
           <div class="section-title">
-            <h3>同日同题材</h3>
-            <span>{{ sameSector.length }} 只</span>
+            <div>
+              <h3>历史首板事件分类</h3>
+              <p v-if="firstBoardEvents">
+                {{ firstBoardHistory.length }} 次 · {{ firstBoardRange }}
+              </p>
+            </div>
+            <span v-if="firstBoardEvents">
+              冻结 {{ firstBoardEvents.source.frozen_dataset_version_id ?? '不可用' }} · 入库
+              {{ firstBoardEvents.source.stored_event_count }}
+            </span>
           </div>
-          <button
-            v-for="item in sameSector"
-            :key="`${item.date}-${item.symbol}-${item.status}`"
-            type="button"
-            @click="emit('select', item)"
+          <div v-if="firstBoardLoading" class="event-state">
+            正在读取 {{ row.symbol }} 的历史首板…
+          </div>
+          <div v-else-if="firstBoardFailure" class="event-state event-state--error" role="alert">
+            <AppIcon name="alert-triangle" :size="16" />
+            <b>历史首板分类读取失败</b>
+            <span>{{ firstBoardFailure }}</span>
+            <small v-if="firstBoardRequestId">请求编号 {{ firstBoardRequestId }}</small>
+            <button type="button" @click="emit('retry-first-board')">重试事件分析</button>
+          </div>
+          <div
+            v-else-if="
+              firstBoardEvents?.source.frozen_status === 'BAD_DATA' && !firstBoardHistory.length
+            "
+            class="event-state event-state--error"
+            role="alert"
           >
-            <span class="mono">{{ item.symbol }}</span>
-            <b>{{ item.name }}</b>
-            <em>{{ limitUpBoardLabel(item) }}</em>
-            <AppIcon name="chevron-right" :size="14" />
-          </button>
-          <p v-if="!sameSector.length" class="side-empty">当日该题材暂无其它涨停。</p>
+            <AppIcon name="alert-triangle" :size="16" />
+            <b>冻结首板历史未通过校验</b>
+            <span>平台当前也没有该股票已入库的首板事件，因此不返回猜测结果。</span>
+            <button type="button" @click="emit('retry-first-board')">重试事件分析</button>
+          </div>
+          <template v-else-if="firstBoardHistory.length">
+            <div
+              v-if="firstBoardEvents?.source.frozen_status !== 'PASS'"
+              class="event-source-warning"
+            >
+              <span>冻结历史当前不可用，仅显示平台已入库事件。</span>
+              <button type="button" @click="emit('retry-first-board')">重试事件分析</button>
+            </div>
+            <article
+              v-for="item in firstBoardHistory"
+              :key="item.event_id"
+              class="event-row"
+              :class="{ 'event-row--current': item.event_date === row.date }"
+            >
+              <header>
+                <time>{{ item.event_date }}</time>
+                <span class="limit-up-mark">首板涨停</span>
+                <span class="source-mark">
+                  {{ item.source_kind === 'stored' ? '平台入库' : '冻结历史' }}
+                </span>
+                <span v-if="item.quality_status !== 'COMPLETE'" class="quality-mark">
+                  信息不足
+                </span>
+                <span v-if="item.event_date === row.date" class="current-mark">当前复盘日</span>
+              </header>
+              <strong>
+                {{ item.class_code ?? '待核对' }} ·
+                {{ item.class_name ?? '不支持的背景轴组合' }}
+              </strong>
+              <p>{{ item.group_code ?? '—' }} · {{ item.group_name ?? '分类信息不足' }}</p>
+              <dl>
+                <div>
+                  <dt>位置</dt>
+                  <dd>{{ positionBandLabel(item.position_band) }}</dd>
+                </div>
+                <div>
+                  <dt>趋势</dt>
+                  <dd>{{ trendLabel(item.trend) }}</dd>
+                </div>
+                <div>
+                  <dt>短期路径</dt>
+                  <dd>{{ shortPathLabel(item.short_path) }}</dd>
+                </div>
+              </dl>
+              <footer>
+                <span>
+                  60 日位置
+                  {{
+                    item.position_60d_pct === null
+                      ? '未知'
+                      : `${Number(item.position_60d_pct).toFixed(2)}%`
+                  }}
+                </span>
+                <code>{{ item.source_detail_code ?? '—' }}</code>
+              </footer>
+            </article>
+            <p class="event-source">
+              合并已验证冻结历史与平台当前入库快照 · 仅描述 T-1 背景，不预示后续收益
+            </p>
+          </template>
+          <p v-else-if="firstBoardEvents?.source.frozen_status === 'PASS'" class="side-empty">
+            该股票在已验证首板账本和当前入库快照中没有历史事件。
+          </p>
+          <p
+            v-else-if="firstBoardEvents?.source.frozen_status === 'NOT_CONFIGURED'"
+            class="side-empty"
+          >
+            冻结历史未配置，当前也没有该股票的入库事件。
+          </p>
+          <p v-else class="side-empty">冻结历史不可用，当前也没有该股票的入库事件。</p>
         </section>
         <section class="note-section">
           <div class="section-title">
@@ -348,12 +464,15 @@ function saveNote() {
 }
 
 .status--up {
-  background: color-mix(in oklab, var(--up) 14%, transparent);
-  color: var(--up);
+  border: 1px solid color-mix(in oklab, var(--up) 72%, white 8%);
+  background: color-mix(in oklab, var(--up) 80%, #000);
+  color: #fff;
+  font-weight: 650;
 }
 
 .status--broken {
-  background: color-mix(in oklab, var(--warn) 14%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 42%, var(--border));
+  background: color-mix(in oklab, var(--warn) 13%, transparent);
   color: var(--warn);
 }
 
@@ -461,7 +580,7 @@ function saveNote() {
 
 .chart-section,
 .note-section,
-.same-sector {
+.event-history {
   min-width: 0;
   padding-top: 14px;
   border-top: 1px solid var(--border);
@@ -634,43 +753,191 @@ function saveNote() {
   line-height: 1.55;
 }
 
-.same-sector {
+.event-history {
   display: grid;
-  gap: 6px;
+  gap: 9px;
 }
 
-.same-sector .section-title {
+.event-history .section-title {
   margin-bottom: 3px;
 }
 
-.same-sector button {
-  display: grid;
-  grid-template-columns: 98px minmax(0, 1fr) auto 16px;
-  align-items: center;
-  gap: 7px;
-  padding: 9px;
+.event-row {
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface2);
   color: var(--fg2);
-  text-align: left;
+}
+
+.event-row--current {
+  border-color: color-mix(in oklab, var(--up) 58%, var(--border));
+  box-shadow: inset 3px 0 0 var(--up);
+}
+
+.event-row header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.event-row time {
+  margin-right: auto;
+  color: var(--accent);
+  font: 11px var(--mono);
+}
+
+.limit-up-mark,
+.source-mark,
+.quality-mark,
+.current-mark {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9.5px;
+}
+
+.limit-up-mark {
+  background: color-mix(in oklab, var(--up) 80%, #000);
+  color: #fff;
+  font-weight: 650;
+}
+
+.source-mark {
+  border: 1px solid var(--border2);
+  color: var(--muted);
+}
+
+.quality-mark {
+  border: 1px solid color-mix(in oklab, var(--warn) 42%, var(--border));
+  color: var(--warn);
+}
+
+.current-mark {
+  border: 1px solid color-mix(in oklab, var(--up) 40%, var(--border));
+  color: var(--up);
+}
+
+.event-row > strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.event-row > p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.event-row dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 8px 0 0;
+}
+
+.event-row dl div {
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.event-row dt {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.event-row dd {
+  margin: 2px 0 0;
+  color: var(--fg2);
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+
+.event-row footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.event-row code {
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.event-source {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.55;
+}
+
+.event-source-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in oklab, var(--warn) 30%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--warn) 7%, transparent);
+  color: var(--warn);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.event-source-warning button {
+  flex: none;
+  min-height: 26px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in oklab, var(--warn) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--warn);
+  font-size: 9.5px;
   cursor: pointer;
 }
 
-.same-sector button:hover {
-  border-color: var(--border2);
-  background: var(--surface3);
-}
-
-.same-sector b {
-  color: var(--fg);
-  font-size: 12.5px;
-}
-
-.same-sector em {
+.event-state {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 22px 12px;
+  border: 1px dashed var(--border2);
+  border-radius: var(--radius-sm);
   color: var(--muted);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.event-state--error {
+  border-color: color-mix(in oklab, var(--up) 34%, var(--border));
+  color: var(--up);
+}
+
+.event-state b {
+  color: var(--fg2);
+}
+
+.event-state small {
+  font-family: var(--mono);
+}
+
+.event-state button {
+  min-height: 30px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg2);
   font-size: 11px;
-  font-style: normal;
+  cursor: pointer;
 }
 
 .side-empty {
@@ -718,12 +985,8 @@ function saveNote() {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .same-sector button {
-    grid-template-columns: 88px minmax(0, 1fr) 16px;
-  }
-
-  .same-sector em {
-    display: none;
+  .event-row dl {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .save {

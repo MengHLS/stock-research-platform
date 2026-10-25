@@ -17,6 +17,7 @@ from .schemas import (
     ClassifierCatalogRead,
     FirstBoardDailyRead,
     FirstBoardEventListRead,
+    FirstBoardHistoryRead,
 )
 
 router = APIRouter(prefix="/api/v1/research/first-board-classifier", tags=["research"])
@@ -71,3 +72,27 @@ def list_stored_first_board_events(
 ):
     daily: FirstBoardDailyService = request.app.state.first_board_daily
     return daily.daily(event_date, offset=offset, limit=limit, batch_id=batch_id)
+
+
+@router.get(
+    "/stock-history",
+    response_model=FirstBoardHistoryRead,
+    operation_id="get_stock_first_board_history",
+)
+def get_stock_first_board_history(
+    request: Request,
+    _actor: ActorDep,
+    stock_code: str = Query(
+        min_length=6,
+        max_length=9,
+        pattern=r"^\d{6}(?:\.(?:SH|SZ|BJ))?$",
+    ),
+    limit: int = Query(default=100, ge=1, le=100),
+):
+    source: FrozenFirstBoardDatasetSource | None = request.app.state.first_board_dataset
+    return service.stock_history(
+        source,
+        request.app.state.first_board_daily,
+        stock_code,
+        limit,
+    )

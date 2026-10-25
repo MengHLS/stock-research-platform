@@ -144,3 +144,6 @@ class FirstBoardDailyService:
             unsupported_count=unsupported,
             items=items,
         )
+
+    def stored_for_stock(self, stock_code: str):
+        return self.store.for_stock(stock_code)

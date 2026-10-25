@@ -7,6 +7,8 @@ export type FirstBoardTrend = components['schemas']['Trend']
 export type FirstBoardShortPath = components['schemas']['ShortPath']
 export type FirstBoardPositionBand = components['schemas']['PositionBand']
 export type FirstBoardEventList = components['schemas']['FirstBoardEventListRead']
+export type FirstBoardHistory = components['schemas']['FirstBoardHistoryRead']
+export type FirstBoardHistoryEvent = components['schemas']['FirstBoardHistoryEventRead']
 
 export const TREND_OPTIONS: { value: FirstBoardTrend; label: string }[] = [
   { value: 'up', label: '上升趋势' },

@@ -624,6 +624,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/research/first-board-classifier/stock-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Stock First Board History */
+        get: operations["get_stock_first_board_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1075,6 +1092,95 @@ export interface components {
             position_band: components["schemas"]["PositionBand"];
             trend: components["schemas"]["Trend"];
             short_path: components["schemas"]["ShortPath"];
+        };
+        /** FirstBoardHistoryEventRead */
+        FirstBoardHistoryEventRead: {
+            /** Event Id */
+            event_id: string;
+            /** Stock Code */
+            stock_code: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Class Code */
+            class_code: string | null;
+            /** Class Name */
+            class_name: string | null;
+            /** Group Code */
+            group_code: string | null;
+            /** Group Name */
+            group_name: string | null;
+            /** Source Detail Code */
+            source_detail_code: string | null;
+            /** Source Group Code */
+            source_group_code: string | null;
+            /** Position 60D Pct */
+            position_60d_pct: string | null;
+            position_band: components["schemas"]["PositionBand"];
+            trend: components["schemas"]["Trend"];
+            short_path: components["schemas"]["ShortPath"];
+            /**
+             * Quality Status
+             * @enum {string}
+             */
+            quality_status: "COMPLETE" | "PARTIAL" | "INSUFFICIENT";
+            /** Feature Reason */
+            feature_reason?: string | null;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "stored" | "frozen";
+            /** Data Version */
+            data_version: string;
+        };
+        /** FirstBoardHistoryRead */
+        FirstBoardHistoryRead: {
+            /** Stock Code */
+            stock_code: string;
+            /**
+             * Taxonomy Version
+             * @default first-board-background-v1
+             * @constant
+             */
+            taxonomy_version: "first-board-background-v1";
+            /** Items */
+            items: components["schemas"]["FirstBoardHistoryEventRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            source: components["schemas"]["FirstBoardHistorySourceRead"];
+            /**
+             * Uses Forward Data
+             * @default false
+             * @constant
+             */
+            uses_forward_data: false;
+        };
+        /** FirstBoardHistorySourceRead */
+        FirstBoardHistorySourceRead: {
+            /**
+             * Frozen Status
+             * @enum {string}
+             */
+            frozen_status: "PASS" | "NOT_CONFIGURED" | "BAD_DATA";
+            /** Frozen Dataset Version Id */
+            frozen_dataset_version_id?: number | null;
+            /** Frozen Event Count */
+            frozen_event_count?: number | null;
+            /**
+             * Stored Batch Count
+             * @default 0
+             */
+            stored_batch_count: number;
+            /**
+             * Stored Event Count
+             * @default 0
+             */
+            stored_event_count: number;
         };
         /** GlobalMarketBarRead */
         GlobalMarketBarRead: {
@@ -5983,6 +6089,119 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FirstBoardDailyRead"];
+                };
+            };
+            /** @description Request cannot be processed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource or route not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not supported */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict with existing state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server failure */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service or dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_stock_first_board_history: {
+        parameters: {
+            query: {
+                stock_code: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstBoardHistoryRead"];
                 };
             };
             /** @description Request cannot be processed */

@@ -394,10 +394,8 @@ onBeforeUnmount(() => {
       <StockDetailContent
         v-if="selectedRow"
         :row="selectedRow"
-        :peer-rows="detail?.rows ?? []"
         :window-max="context?.window_max"
         :note="notes[noteKey] ?? ''"
-        @select="selectRow"
         @save-note="saveNote"
       />
     </ReviewDrawer>

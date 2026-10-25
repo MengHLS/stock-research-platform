@@ -1,21 +1,20 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { onBeforeUnmount, watch } from 'vue'
 
 import LimitUpDetail from './LimitUpDetail.vue'
 import { api, callApi } from '../../api/client'
 import { isAuthNotConfigured, type ApiFailure } from '../../api/errors'
 import type { LimitUpReviewRow } from '../../market/review'
 import { useLatestIntraday } from '../../market/useLatestIntraday'
+import { useStockFirstBoardEvents } from '../../market/useStockFirstBoardEvents'
 import { useStockDetail } from '../../market/useStockDetail'
 
 const props = defineProps<{
   row: LimitUpReviewRow
-  peerRows: LimitUpReviewRow[]
   windowMax?: number
   note: string
 }>()
 const emit = defineEmits<{
-  select: [row: LimitUpReviewRow]
   'save-note': [note: string]
 }>()
 
@@ -76,16 +75,24 @@ const {
   ),
 )
 
-const sameSector = computed(() => {
-  const row = props.row
-  return props.peerRows.filter(
-    (item) =>
-      item.date === row.date &&
-      item.sector === row.sector &&
-      item.status === 'limit_up' &&
-      !(item.symbol === row.symbol && item.status === row.status),
-  )
-})
+const {
+  events: firstBoardEvents,
+  loading: firstBoardLoading,
+  failure: firstBoardFailure,
+  load: loadFirstBoardEvents,
+  retry: retryFirstBoardEvents,
+  clear: clearFirstBoardEvents,
+} = useStockFirstBoardEvents(async (symbol, signal) =>
+  callApi(
+    (requestSignal) =>
+      api.GET('/api/v1/research/first-board-classifier/stock-history', {
+        params: { query: { stock_code: symbol, limit: 100 } },
+        signal: requestSignal,
+      }),
+    { access: 'read', signal },
+  ),
+)
+
 function failureText(failure: ApiFailure): string {
   if (isAuthNotConfigured(failure)) return '登录服务尚未启用，无法读取历史复盘数据。'
   if (failure.kind === 'network') return '无法连接后台服务，请确认 API 已启动或检查网络。'
@@ -97,6 +104,7 @@ watch(
   () => {
     resetIntraday()
     void load(props.row, props.windowMax ?? 60)
+    void loadFirstBoardEvents(props.row.symbol)
   },
   { immediate: true },
 )
@@ -104,6 +112,7 @@ watch(
 onBeforeUnmount(() => {
   clear()
   resetIntraday()
+  clearFirstBoardEvents()
 })
 
 function requestIntraday() {
@@ -114,7 +123,6 @@ function requestIntraday() {
 <template>
   <LimitUpDetail
     :row="row"
-    :same-sector="sameSector"
     :note="note"
     :stock-series="stockSeries"
     :stock-loading="stockLoading"
@@ -129,11 +137,15 @@ function requestIntraday() {
     :intraday-loading="intradayLoading"
     :intraday-failure="intradayFailure ? failureText(intradayFailure) : null"
     :intraday-request-id="intradayFailure?.requestId"
+    :first-board-events="firstBoardEvents"
+    :first-board-loading="firstBoardLoading"
+    :first-board-failure="firstBoardFailure ? failureText(firstBoardFailure) : null"
+    :first-board-request-id="firstBoardFailure?.requestId"
     @save-note="emit('save-note', $event)"
-    @select="emit('select', $event)"
     @retry-stock="retrySeries"
     @retry-facts="retryFacts"
     @request-intraday="requestIntraday"
     @retry-intraday="retryIntraday"
+    @retry-first-board="retryFirstBoardEvents"
   />
 </template>
