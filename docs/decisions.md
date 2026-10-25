@@ -209,4 +209,6 @@ FastAPI 生成 schema，固定位置覆盖输出 TypeScript 声明。CI 比较�
 
 实现：新增 `GET /api/v1/market/review/stock-facts?symbol&date`，行业取 `industry_assignments` 在观察日生效的归属（证监会行业分类，非涨停题材），换手率与市值取 `liquidity_daily`，成交量与成交额取 `stock_daily_prices`（源为手/千元，接口按边界约定换算为股/元并注明单位）。任一行或列缺失时返回 null、`unknown_fields` 与稳定 issue（`stock_industry_missing`、`stock_liquidity_missing`、`stock_turnover_missing`、`stock_market_cap_missing`、`stock_trade_missing`），弹窗按 issue 文案说明缺口；不复用外网行业，也不用收盘价×股本或历史市值推算，封单额继续标明旧源未提供。请求按 symbol+date 使用现有 TTL 缓存和统一 read 超时/重试。
 
+2026-10-25 追加：`stock-series` 每根日 K 增加 `volume_shares`、`amount_cny`，并用 `volume_missing_days` 统计窗口内成交量缺失天数；弹窗日 K 下方按同一日期序列绘制成交量柱（颜色沿用涨跌，未知留空），成交量或成交额任一缺失时返回 `stock_trade_missing`。真实零值与缺失分开：全零窗口显示 `0.00 手` 而非未知。
+
 代价与边界：数据库现状决定可见范围——`industry_assignments` 只有 2026-08-31 起的当前归属，更早观察日行业为 null；`liquidity_daily` 最大交易日为 2026-10-19；对 `600000.SH`、`000001.SZ` 的逐股核对显示市值最后非空日为 2026-09-04，之后市值未知，10-19 后换手率也未知（市值全表扫描超时，未证明所有证券相同）；`stock_daily_prices` 的成交量覆盖到 2026-10-23。补齐断档需旧工程采集侧继续写入或多源补数，属数据接入任务，不在只读接口内生成；新增的东方财富 `stock-profile` 仍在，但不再用于复盘弹窗。

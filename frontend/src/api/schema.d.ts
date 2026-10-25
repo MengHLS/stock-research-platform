@@ -2122,6 +2122,10 @@ export interface components {
             ma5?: string | null;
             /** Ma20 */
             ma20?: string | null;
+            /** Volume Shares */
+            volume_shares?: string | null;
+            /** Amount Cny */
+            amount_cny?: string | null;
         };
         /**
          * ReviewStockFactsRead
@@ -2171,6 +2175,8 @@ export interface components {
             coverage: components["schemas"]["CoverageRead"];
             /** Missing Days */
             missing_days: number;
+            /** Volume Missing Days */
+            volume_missing_days: number;
             /** Bars */
             bars: components["schemas"]["ReviewStockBarRead"][];
             /** Issues */

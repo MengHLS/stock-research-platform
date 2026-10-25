@@ -166,6 +166,8 @@ class FakeReviewSource:
                 low=Decimal("9.80") + Decimal(offset),
                 close=Decimal("10.20") + Decimal(offset),
                 previous_close=Decimal("10.00") + Decimal(offset),
+                volume_lots=Decimal("1200") + Decimal(offset * 10),
+                amount_1000cny=Decimal("5000") + Decimal(offset * 100),
             )
             for offset, day in enumerate(day for day in self.days if start <= day <= end)
         ]
@@ -528,6 +530,65 @@ def test_stock_series_canonicalizes_symbol_and_returns_real_candles():
     assert result.bars[-1].ma5 is not None
     assert result.bars[-1].ma20 is None
     assert source.stock_bar_calls == 1
+    assert [bar.volume_shares for bar in result.bars] == [
+        Decimal("120000.00"),
+        Decimal("121000.00"),
+        Decimal("122000.00"),
+        Decimal("123000.00"),
+        Decimal("124000.00"),
+    ]
+    assert [bar.amount_cny for bar in result.bars] == [
+        Decimal("5000000.00"),
+        Decimal("5100000.00"),
+        Decimal("5200000.00"),
+        Decimal("5300000.00"),
+        Decimal("5400000.00"),
+    ]
+    assert result.volume_missing_days == 0
+    assert "stock_trade_missing" not in {issue.code for issue in result.issues}
+
+
+@pytest.mark.parametrize("field", ["volume_lots", "amount_1000cny"])
+def test_stock_series_keeps_missing_trade_fields_unknown_without_breaking_prices(field):
+    class MissingVolumeSource(FakeReviewSource):
+        def stock_bars_range(self, start, end, symbol):
+            return [
+                replace(bar, **{field: None}) if bar.trading_day == self.days[-1] else bar
+                for bar in super().stock_bars_range(start, end, symbol)
+            ]
+
+    source = MissingVolumeSource()
+    source.days = [date(2026, 9, 17), date(2026, 9, 18)]
+
+    result = service(source).stock_series("000001.SZ", date(2026, 9, 18), 2)
+
+    assert result.bars[-1].close is not None
+    if field == "volume_lots":
+        assert result.bars[-1].volume_shares is None
+        assert result.volume_missing_days == 1
+    else:
+        assert result.bars[-1].volume_shares == Decimal("121000.00")
+        assert result.bars[-1].amount_cny is None
+        assert result.volume_missing_days == 0
+    assert result.bars[0].volume_shares == Decimal("120000.00")
+    assert "stock_trade_missing" in {issue.code for issue in result.issues}
+
+
+@pytest.mark.parametrize("field", ["volume_lots", "amount_1000cny"])
+def test_stock_series_rejects_negative_traded_values(field):
+    class NegativeVolumeSource(FakeReviewSource):
+        def stock_bars_range(self, start, end, symbol):
+            return [
+                replace(bar, **{field: Decimal("-1")})
+                for bar in super().stock_bars_range(start, end, symbol)
+            ]
+
+    source = NegativeVolumeSource()
+    source.days = [date(2026, 9, 17), date(2026, 9, 18)]
+
+    with pytest.raises(DomainError) as invalid:
+        service(source).stock_series("000001.SZ", date(2026, 9, 18), 2)
+    assert invalid.value.code == "MARKET_REVIEW_SOURCE_BAD_DATA"
 
 
 def test_stock_series_preserves_gaps_and_uses_hidden_history_for_moving_averages():
@@ -1106,7 +1167,8 @@ def test_legacy_source_reads_reviewed_columns_from_sqlite():
                 """
                 CREATE TABLE stock_daily_prices (
                     stockCode TEXT, tradeDate TEXT, openPrice TEXT, highPrice TEXT,
-                    lowPrice TEXT, closePrice TEXT, preClosePrice TEXT
+                    lowPrice TEXT, closePrice TEXT, preClosePrice TEXT,
+                    volume TEXT, amount TEXT
                 )
                 """
             )
@@ -1140,8 +1202,8 @@ def test_legacy_source_reads_reviewed_columns_from_sqlite():
             text(
                 """
                 INSERT INTO stock_daily_prices VALUES
-                ('000001.SZ', '2026-09-18', '10', '10', '10', '10', '9'),
-                ('000002.SZ', '2026-09-18', '10', '10', '10', '9', '10')
+                ('000001.SZ', '2026-09-18', '10', '10', '10', '10', '9', '1200', '5000'),
+                ('000002.SZ', '2026-09-18', '10', '10', '10', '9', '10', NULL, NULL)
                 """
             )
         )
@@ -1176,6 +1238,13 @@ def test_legacy_source_reads_reviewed_columns_from_sqlite():
         Decimal("10.0"),
         Decimal("10.0"),
     )
+    assert (stock_bar.volume_lots, stock_bar.amount_1000cny) == (
+        Decimal("1200.0"),
+        Decimal("5000.0"),
+    )
+    blank_bar = source.stock_bars_range(date(2026, 9, 18), date(2026, 9, 18), "000002.SZ")[0]
+    assert blank_bar.volume_lots is None
+    assert blank_bar.amount_1000cny is None
     market = source.market_wide_rows(date(2026, 9, 18), date(2026, 9, 18))[0]
     assert market.turnover_100m_cny == Decimal("12000.5")
     index = source.index_rows(date(2026, 9, 18), date(2026, 9, 18), ["000001.SH"])[0]
@@ -1392,6 +1461,9 @@ def test_review_api_is_shared_across_actors_and_returns_decimal_strings(database
         assert body["methodology"]["version"] == "market-review-v1"
         assert limit_up.json()["window_actual"] == 2
         assert stock_series.json()["bars"][-1]["close"] == "13.20"
+        assert stock_series.json()["bars"][-1]["volume_shares"] == "123000.00"
+        assert stock_series.json()["bars"][-1]["amount_cny"] == "5300000.00"
+        assert stock_series.json()["volume_missing_days"] == 0
 
 
 def test_review_api_dates_and_indices_contract(database_url):

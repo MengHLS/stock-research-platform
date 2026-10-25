@@ -290,6 +290,8 @@ class ReviewStockBarRead(BaseModel):
     change_pct: Decimal | None = None
     ma5: Decimal | None = None
     ma20: Decimal | None = None
+    volume_shares: Decimal | None = None
+    amount_cny: Decimal | None = None
 
 
 class ReviewStockSeriesRead(BaseModel):
@@ -300,6 +302,7 @@ class ReviewStockSeriesRead(BaseModel):
     window_actual: int
     coverage: CoverageRead
     missing_days: int = Field(ge=0)
+    volume_missing_days: int = Field(ge=0)
     bars: list[ReviewStockBarRead]
     issues: list[ReviewIssueRead]
     methodology: ReviewMethodologyRead

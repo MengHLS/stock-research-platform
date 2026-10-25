@@ -288,7 +288,7 @@ class LegacyMarketReviewSource:
             rows = self._query(
                 """
                 SELECT stockCode, tradeDate, openPrice, highPrice, lowPrice,
-                       closePrice, preClosePrice
+                       closePrice, preClosePrice, volume, amount
                 FROM stock_daily_prices
                 WHERE tradeDate >= :start AND tradeDate <= :end
                   AND stockCode = :symbol
@@ -309,6 +309,8 @@ class LegacyMarketReviewSource:
                     low=_decimal_optional(row["lowPrice"]),
                     close=_decimal_optional(row["closePrice"]),
                     previous_close=_decimal_optional(row["preClosePrice"]),
+                    volume_lots=_decimal_optional(row["volume"]),
+                    amount_1000cny=_decimal_optional(row["amount"]),
                 )
                 for row in rows
             ]

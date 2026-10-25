@@ -8,6 +8,7 @@ import {
   findPriceExtremes,
   formatNumber,
   formatSignedPercent,
+  formatVolumeLots,
 } from '../../market/review'
 import { linePath, sparseAxisIndexes, splitLineSegments } from '../../market/chart'
 import { useChartViewport } from '../../market/useChartViewport'
@@ -22,7 +23,10 @@ const height = 340
 const plotLeft = 12
 const plotRight = 58
 const plotTop = 24
-const priceBottom = 296
+const priceBottom = 252
+const volumeTop = 270
+const volumeBottom = 312
+const volumeHeight = volumeBottom - volumeTop
 const plotWidth = computed(() => width.value - plotLeft - plotRight)
 const plotHeight = priceBottom - plotTop
 const candleWidth = computed(() =>
@@ -114,6 +118,40 @@ const candles = computed(() =>
     ]
   }),
 )
+const volumeMaximum = computed(() =>
+  props.series.bars.reduce((maximum, bar) => {
+    const value = chartNumber(bar.volume_shares)
+    return value !== null && value > 0 ? Math.max(maximum, value) : maximum
+  }, 0),
+)
+const volumeBars = computed(() =>
+  props.series.bars.flatMap((bar, index) => {
+    const value = chartNumber(bar.volume_shares)
+    if (value === null || value <= 0) return []
+    const top = volumeBottom - (value / Math.max(1, volumeMaximum.value)) * volumeHeight
+    const values = candleData.value[index]
+    return [
+      {
+        index,
+        x: xFor(index) - candleWidth.value / 2,
+        y: top,
+        width: candleWidth.value,
+        height: Math.max(1, volumeBottom - top),
+        up: values ? values[1] >= values[0] : null,
+      },
+    ]
+  }),
+)
+const hasKnownVolume = computed(() =>
+  props.series.bars.some((bar) => chartNumber(bar.volume_shares) !== null),
+)
+const volumeAxisLabel = computed(() =>
+  hasKnownVolume.value ? formatVolumeLots(volumeMaximum.value) : '成交量未知',
+)
+const volumeMissingNote = computed(() => {
+  const missing = props.series.volume_missing_days
+  return missing > 0 ? ` · 量柱缺失 ${missing} 日` : ''
+})
 const priceExtremes = computed(() =>
   findPriceExtremes(props.series.bars).map((extreme) => {
     const x = xFor(extreme.index)
@@ -157,15 +195,16 @@ function moveCursor(step: number) {
       <span><i class="legend-candle" />日 K</span>
       <span><i class="legend-line legend-line--ma5" />MA5</span>
       <span><i class="legend-line legend-line--ma20" />MA20</span>
+      <span><i class="legend-volume" />成交量</span>
       <span class="coverage">
-        {{ series.window_actual }} 日 · 缺失 {{ series.missing_days }} 日
+        {{ series.window_actual }} 日 · 缺失 {{ series.missing_days }} 日{{ volumeMissingNote }}
       </span>
     </div>
     <svg
       class="kline-chart"
       :viewBox="`0 0 ${width} ${height}`"
       role="img"
-      :aria-label="`${series.symbol} 个股日 K 线、MA5 与 MA20`"
+      :aria-label="`${series.symbol} 个股日 K 线、MA5、MA20 与成交量`"
       tabindex="0"
       @pointermove="setHoverFromPointer"
       @pointerleave="hoverIndex = null"
@@ -180,7 +219,7 @@ function moveCursor(step: number) {
         :x="xFor(selectedIndex) - plotWidth / Math.max(1, series.bars.length) / 2"
         :y="plotTop"
         :width="plotWidth / Math.max(1, series.bars.length)"
-        :height="priceBottom - plotTop"
+        :height="volumeBottom - plotTop"
       />
 
       <g v-for="tick in ticks" :key="tick">
@@ -244,12 +283,36 @@ function moveCursor(step: number) {
       </g>
 
       <line
+        class="grid-line"
+        :x1="plotLeft"
+        :x2="width - plotRight"
+        :y1="volumeTop"
+        :y2="volumeTop"
+      />
+
+      <rect
+        v-for="bar in volumeBars"
+        :key="`volume-${bar.index}`"
+        class="volume-bar"
+        :class="bar.up === null ? 'volume-flat' : bar.up ? 'candle-up' : 'candle-down'"
+        :x="bar.x"
+        :y="bar.y"
+        :width="bar.width"
+        :height="bar.height"
+        rx="0.6"
+      />
+
+      <text class="axis-value volume-axis" :x="width - 4" :y="volumeTop + 4" text-anchor="end">
+        {{ volumeAxisLabel }}
+      </text>
+
+      <line
         v-if="activeIndex >= 0"
         class="hover-line"
         :x1="xFor(activeIndex)"
         :x2="xFor(activeIndex)"
         :y1="plotTop"
-        :y2="priceBottom"
+        :y2="volumeBottom"
       />
 
       <text
@@ -270,7 +333,7 @@ function moveCursor(step: number) {
         :x="plotLeft + (index / Math.max(1, series.bars.length)) * plotWidth"
         :y="plotTop"
         :width="plotWidth / Math.max(1, series.bars.length)"
-        :height="priceBottom - plotTop"
+        :height="volumeBottom - plotTop"
         @pointerenter="hoverIndex = index"
       />
     </svg>
@@ -298,6 +361,10 @@ function moveCursor(step: number) {
         <strong>{{ formatSignedPercent(activeBar.change_pct) }}</strong>
       </span>
       <span>
+        <i>量</i>
+        <strong>{{ formatVolumeLots(activeBar.volume_shares) }}</strong>
+      </span>
+      <span>
         <i class="ma5-text">MA5</i>
         <strong>{{ formatNumber(activeBar.ma5, 2) }}</strong>
       </span>
@@ -307,7 +374,7 @@ function moveCursor(step: number) {
       </span>
     </div>
 
-    <p class="chart-note">缺失交易日不补画 K 线；均线在样本不足时断开。</p>
+    <p class="chart-note">缺失交易日不补画 K 线与量柱；均线在样本不足时断开；成交量按手展示。</p>
   </div>
 </template>
 
@@ -360,6 +427,26 @@ function moveCursor(step: number) {
 
 .legend-line--ma20 {
   background: var(--warn);
+}
+
+.legend-volume {
+  width: 6px;
+  height: 11px;
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--up) 62%, transparent);
+}
+
+.volume-bar {
+  opacity: 0.62;
+}
+
+.volume-flat {
+  fill: var(--flat);
+  stroke: var(--flat);
+}
+
+.volume-axis {
+  font-size: 10px;
 }
 
 .kline-chart {

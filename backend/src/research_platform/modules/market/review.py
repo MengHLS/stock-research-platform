@@ -124,6 +124,8 @@ class StockBar:
     low: Decimal | None
     close: Decimal | None
     previous_close: Decimal | None
+    volume_lots: Decimal | None = None
+    amount_1000cny: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -844,20 +846,26 @@ class MarketReviewService:
                     change_pct=(_change_pct(bar.close, bar.previous_close) if bar else None),
                     ma5=_stock_moving_average(calendar_days, by_day, day, 5),
                     ma20=_stock_moving_average(calendar_days, by_day, day, 20),
+                    volume_shares=_lots_to_shares(bar.volume_lots if bar else None),
+                    amount_cny=_thousand_cny_to_cny(bar.amount_1000cny if bar else None),
                 )
             )
         missing_days = sum(
             any(value is None for value in (bar.open, bar.high, bar.low, bar.close)) for bar in bars
         )
+        volume_missing_days = sum(bar.volume_shares is None for bar in bars)
         issues = list(SOURCE_ISSUES)
         if missing_days:
             issues.append(_issue("stock_history_missing", requested_day))
+        if volume_missing_days or any(bar.amount_cny is None for bar in bars):
+            issues.append(_issue("stock_trade_missing", requested_day))
         return ReviewStockSeriesRead(
             symbol=symbol,
             window_requested=window,
             window_actual=len(history_dates),
             coverage=_coverage(sum(day in by_day for day in history_dates)),
             missing_days=missing_days,
+            volume_missing_days=volume_missing_days,
             bars=bars,
             issues=issues,
             methodology=ReviewMethodologyRead(),
@@ -1249,6 +1257,8 @@ class MarketReviewService:
                     _finite_optional(value)
                     if value is not None and value <= 0:
                         raise ReviewSourceDataError("non-positive stock price")
+                _finite_decimal(row.volume_lots, "volume_lots")
+                _finite_decimal(row.amount_1000cny, "amount_1000cny")
                 if all(value is not None for value in (row.open, row.high, row.low, row.close)):
                     if not (row.low <= row.open <= row.high and row.low <= row.close <= row.high):
                         raise ReviewSourceDataError("inconsistent stock OHLC")
