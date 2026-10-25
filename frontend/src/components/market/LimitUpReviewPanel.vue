@@ -13,6 +13,7 @@ import {
   limitUpSealLabel,
   limitUpSectorOptions,
   limitUpStatusLabel,
+  LIMIT_UP_BOARD_OPTIONS,
   paginateRows,
   sortLimitUpRows,
   type LimitUpSortKey,
@@ -49,6 +50,7 @@ const paged = computed(() => paginateRows(filtered.value, page.value, pageSize))
 const hasFilters = computed(
   () =>
     Boolean(filters.query.trim()) ||
+    filters.board !== 'all' ||
     filters.tier !== 'all' ||
     filters.status !== 'limit_up' ||
     filters.sector !== null,
@@ -75,6 +77,7 @@ watch(
 watch(
   () => [
     filters.query,
+    filters.board,
     filters.tier,
     filters.status,
     filters.sector,
@@ -167,6 +170,27 @@ function exportCsv() {
           aria-label="搜索涨停记录"
         />
       </label>
+      <span class="filter-label">板块</span>
+      <div class="filter-group" role="group" aria-label="板块筛选">
+        <button
+          type="button"
+          :class="{ active: filters.board === 'all' }"
+          :aria-pressed="filters.board === 'all'"
+          @click="filters.board = 'all'"
+        >
+          全部
+        </button>
+        <button
+          v-for="option in LIMIT_UP_BOARD_OPTIONS"
+          :key="option.value"
+          type="button"
+          :class="{ active: filters.board === option.value }"
+          :aria-pressed="filters.board === option.value"
+          @click="filters.board = filters.board === option.value ? 'all' : option.value"
+        >
+          {{ option.label }}
+        </button>
+      </div>
       <span class="filter-label">板数</span>
       <div class="filter-group" role="group" aria-label="板数筛选">
         <button
@@ -272,7 +296,7 @@ function exportCsv() {
       <span v-else-if="filters.status === 'broken'">
         断板仅表示前一日在榜、当日未续；可切换到“涨停”查看当日涨停记录。
       </span>
-      <span v-else>调整关键词、板数、断板或题材筛选。</span>
+      <span v-else>调整关键词、板块、板数、断板或题材筛选。</span>
       <button v-if="dayMissing" type="button" class="tool-button" @click="emit('resetDate')">
         回到最近有记录日
       </button>

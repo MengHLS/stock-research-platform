@@ -21,6 +21,7 @@ from research_platform.core.errors import DomainError
 from research_platform.core.logging import log_event
 
 from .market_time import exchange_now
+from .review_counts import classify_board
 from .review_counts_store import ReviewCountsStore, ReviewCountsStoreError
 from .review_schemas import (
     CoverageRead,
@@ -1369,6 +1370,7 @@ class MarketReviewService:
             date=observation_day,
             symbol=record.symbol,
             name=record.name or record.symbol,
+            board_category=classify_board(record.symbol),
             sector=record.sector or "未知",
             status=status,
             boards=boards,

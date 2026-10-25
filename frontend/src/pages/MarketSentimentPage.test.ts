@@ -141,6 +141,7 @@ describe('sentiment page request ownership and details', () => {
       name: '股票A',
       sector: '算力',
       date: '2026-10-16',
+      board_category: 'main',
       boards: 3,
       limit_up_time: '09:31',
       boards_as_of_date: '2026-10-16',

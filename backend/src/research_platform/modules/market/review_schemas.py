@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .review_counts import BoardCategory
+
 CoverageStatus = Literal["available", "missing"]
 IssueCode = Literal[
     "source_presence_only",
@@ -365,6 +367,7 @@ class LimitUpReviewRowRead(BaseModel):
     date: date
     symbol: str
     name: str
+    board_category: BoardCategory
     sector: str
     status: Literal["limit_up", "broken"]
     boards: int | None

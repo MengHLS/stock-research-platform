@@ -75,6 +75,7 @@ const up: LimitUpReviewRow = {
   date: '2026-09-18',
   symbol: '000001.SZ',
   name: '甲',
+  board_category: 'main',
   sector: '半导体',
   status: 'limit_up',
   boards: 2,
@@ -96,11 +97,11 @@ const broken: LimitUpReviewRow = {
 const unmounts: (() => void)[] = []
 afterEach(() => unmounts.splice(0).forEach((unmount) => unmount()))
 
-function mount() {
+function mount(extraRows: LimitUpReviewRow[] = []) {
   const root = new Node('root')
   const select = vi.fn()
   const app = renderer.createApp(component, {
-    rows: [up, broken, { ...up, date: '2026-09-17' }],
+    rows: [up, broken, { ...up, date: '2026-09-17' }, ...extraRows],
     selectedDate: up.date,
     selectedDay: null,
     loading: false,
@@ -149,6 +150,26 @@ describe('limit-up review row details', () => {
     dispatch(panel.rows()[0].children[0], 'Click')
     expect(panel.select).toHaveBeenLastCalledWith(broken)
     expect(panel.select).toHaveBeenCalledTimes(2)
+  })
+
+  it('filters rendered rows with the board chips and toggles back to all', async () => {
+    const star: LimitUpReviewRow = {
+      ...up,
+      symbol: '688001.SH',
+      name: '星',
+      board_category: 'star',
+    }
+    const panel = mount([star])
+    expect(panel.rows()).toHaveLength(2)
+    const chip = find(panel.root, (node) => node.tag === 'button' && node.text.trim() === '科创板')
+    expect(chip).toHaveLength(1)
+    dispatch(chip[0], 'Click')
+    await nextTick()
+    expect(panel.rows()).toHaveLength(1)
+    expect(panel.rows()[0].props['aria-label']).toContain('688001.SH')
+    dispatch(chip[0], 'Click')
+    await nextTick()
+    expect(panel.rows()).toHaveLength(2)
   })
 
   it('supports Enter and Space with an accessible name and ignores repeated or unrelated keys', () => {

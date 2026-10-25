@@ -2,15 +2,26 @@ import type { LimitUpReviewDay, LimitUpReviewRow, ReviewDate } from './review'
 
 export type LimitUpTier = 'all' | 'first' | 'connection' | 'high'
 export type LimitUpStatusFilter = 'limit_up' | 'broken' | 'all'
+export type LimitUpBoard = LimitUpReviewRow['board_category']
+export type LimitUpBoardFilter = LimitUpBoard | 'all'
 export type LimitUpSortKey =
   'date' | 'symbol' | 'name' | 'sector' | 'boards' | 'limit_up_time' | 'change_pct' | 'status'
 
 export interface LimitUpFilters {
   query: string
+  board: LimitUpBoardFilter
   tier: LimitUpTier
   status: LimitUpStatusFilter
   sector: string | null
 }
+
+/** The board taxonomy is owned by the review API; the table only labels its values. */
+export const LIMIT_UP_BOARD_OPTIONS = [
+  { value: 'main', label: '主板' },
+  { value: 'chinext', label: '创业板' },
+  { value: 'star', label: '科创板' },
+  { value: 'bse', label: '北交所' },
+] as const satisfies ReadonlyArray<{ value: LimitUpBoard; label: string }>
 
 export interface LimitUpSort {
   key: LimitUpSortKey
@@ -56,6 +67,7 @@ export interface PageSlice<T> {
 
 const EMPTY_FILTERS: LimitUpFilters = {
   query: '',
+  board: 'all',
   tier: 'all',
   status: 'limit_up',
   sector: null,
@@ -71,7 +83,12 @@ export function limitUpEmptyTitle(day: LimitUpReviewDay | null, filters: LimitUp
   if (!day || day.broken_count === null || day.broken_count === undefined) {
     return '当日断板状态无法确认'
   }
-  if (filters.query.trim() || filters.tier !== 'all' || filters.sector !== null) {
+  if (
+    filters.query.trim() ||
+    filters.tier !== 'all' ||
+    filters.board !== 'all' ||
+    filters.sector !== null
+  ) {
     return '没有符合筛选条件的断板记录'
   }
   return day.broken_count === 0 ? '当日没有断板记录' : '没有符合筛选条件的断板记录'
@@ -86,6 +103,7 @@ export function filterLimitUpRows(
   return rows.filter((row) => {
     if (row.date !== selectedDate) return false
     if (filters.status !== 'all' && row.status !== filters.status) return false
+    if (filters.board !== 'all' && row.board_category !== filters.board) return false
     if (filters.sector && row.sector !== filters.sector) return false
     if (filters.tier === 'first' && row.boards !== 1) return false
     if (filters.tier === 'connection' && (row.boards === null || row.boards < 2)) return false

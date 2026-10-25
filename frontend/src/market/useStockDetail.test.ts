@@ -10,6 +10,7 @@ function row(symbol = '600519.SH'): LimitUpReviewRow {
     date: '2026-10-20',
     symbol,
     name: '贵州茅台',
+    board_category: 'main',
     sector: '白酒',
     status: 'limit_up',
     boards: 1,

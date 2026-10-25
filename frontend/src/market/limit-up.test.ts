@@ -11,6 +11,7 @@ import {
   limitUpSealLabel,
   limitUpSectorOptions,
   limitUpStatusLabel,
+  LIMIT_UP_BOARD_OPTIONS,
   paginateRows,
   shiftMonth,
   sortLimitUpRows,
@@ -21,6 +22,7 @@ function row(
 ): LimitUpReviewRow {
   return {
     name: overrides.symbol,
+    board_category: 'main',
     sector: '半导体',
     status: 'limit_up',
     boards: 1,
@@ -103,6 +105,9 @@ describe('limit-up presentation model', () => {
     const filters = { ...defaultLimitUpFilters(), status: 'broken' as const }
     expect(limitUpEmptyTitle(day, filters)).toBe('当日断板状态无法确认')
     expect(limitUpEmptyTitle({ ...day, broken_count: 0 }, filters)).toBe('当日没有断板记录')
+    expect(limitUpEmptyTitle({ ...day, broken_count: 0 }, { ...filters, board: 'bse' })).toBe(
+      '没有符合筛选条件的断板记录',
+    )
     expect(limitUpEmptyTitle({ ...day, broken_count: 2 }, { ...filters, query: '无匹配' })).toBe(
       '没有符合筛选条件的断板记录',
     )
@@ -127,6 +132,7 @@ describe('limit-up presentation model', () => {
 
   it('combines tier, status, sector and text filters without inventing board counts', () => {
     const filtered = filterLimitUpRows(rows, '2026-09-18', {
+      ...defaultLimitUpFilters(),
       query: '丙',
       tier: 'high',
       status: 'broken',
@@ -140,6 +146,41 @@ describe('limit-up presentation model', () => {
         status: 'all',
       }).map((item) => item.symbol),
     ).toEqual(['000001.SZ', '000003.SZ'])
+  })
+
+  it('filters by the reviewed board category and combines it with the other filters', () => {
+    const mixed = [
+      row({ date: '2026-09-18', symbol: '600000.SH', board_category: 'main' }),
+      row({ date: '2026-09-18', symbol: '300001.SZ', board_category: 'chinext' }),
+      row({ date: '2026-09-18', symbol: '688001.SH', board_category: 'star' }),
+      row({ date: '2026-09-18', symbol: '920001.BJ', board_category: 'bse' }),
+      row({ date: '2026-09-18', symbol: '510300.SH', board_category: 'unknown' }),
+    ]
+    const filters = defaultLimitUpFilters()
+    const symbols = (value: typeof filters) =>
+      filterLimitUpRows(mixed, '2026-09-18', value).map((item) => item.symbol)
+
+    expect(symbols(filters)).toHaveLength(5)
+    expect(symbols({ ...filters, board: 'main' })).toEqual(['600000.SH'])
+    expect(symbols({ ...filters, board: 'chinext' })).toEqual(['300001.SZ'])
+    expect(symbols({ ...filters, board: 'star' })).toEqual(['688001.SH'])
+    expect(symbols({ ...filters, board: 'bse' })).toEqual(['920001.BJ'])
+    expect(symbols({ ...filters, board: 'bse', tier: 'high' })).toEqual([])
+  })
+
+  it('labels the four board filters owned by the review API', () => {
+    expect(LIMIT_UP_BOARD_OPTIONS.map((option) => option.value)).toEqual([
+      'main',
+      'chinext',
+      'star',
+      'bse',
+    ])
+    expect(LIMIT_UP_BOARD_OPTIONS.map((option) => option.label)).toEqual([
+      '主板',
+      '创业板',
+      '科创板',
+      '北交所',
+    ])
   })
 
   it('keeps the unknown sector while limiting the quick filters', () => {

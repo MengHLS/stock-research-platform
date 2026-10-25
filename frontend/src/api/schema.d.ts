@@ -1462,6 +1462,11 @@ export interface components {
             symbol: string;
             /** Name */
             name: string;
+            /**
+             * Board Category
+             * @enum {string}
+             */
+            board_category: "main" | "chinext" | "star" | "bse" | "unknown";
             /** Sector */
             sector: string;
             /**

@@ -472,6 +472,21 @@ def test_limit_up_detail_returns_current_and_broken_rows_across_window():
     assert source.quote_calls == 1
 
 
+def test_limit_up_detail_labels_board_category_from_the_symbol():
+    symbols = ["600000.SH", "300001.SZ", "688001.SH", "920001.BJ"]
+    source = FakeReviewSource([record(symbol, "2026-09-17") for symbol in symbols])
+    source.days = [date(2026, 9, 17)]
+
+    result = service(source).limit_up(date(2026, 9, 17), 1)
+
+    assert {row.symbol: row.board_category for row in result.rows} == {
+        "600000.SH": "main",
+        "300001.SZ": "chinext",
+        "688001.SH": "star",
+        "920001.BJ": "bse",
+    }
+
+
 def test_limit_up_detail_keeps_missing_days_unknown_instead_of_zero():
     source = FakeReviewSource([record("000001.SZ", "2026-09-17")])
     source.days = [date(2026, 9, 17), date(2026, 9, 18)]
